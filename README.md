@@ -18,9 +18,19 @@ Uninstall: `sudo /usr/local/libexec/gsr24m-uninstall.sh` (`--purge` also deletes
 - Sample rate, sync source (Internal / Word Clock) and latency mode set from the application.
 - Measured round trip inside the console: 2.2 ms (48 kHz). Output latency seen by software: playback lead (40 to 300 ms depending on the mode) + 3 ms.
 
+## Tested on
+
+| | |
+| --- | --- |
+| macOS | **15.7.9 (Sequoia)**. macOS 13 and 14 are the declared minimum but have not been tested. |
+| Mac | MacBook Pro M1 Pro (Apple silicon). Intel Macs are not supported. |
+| FireWire link | Apple Thunderbolt to FireWire adapter, FireWire 800 to 400 cable |
+| Card | GS-R24, DICE firmware 1.0.12.0, Allen & Heath firmware V4.2.0.39752 |
+| Audio software | Apple Music, Audio MIDI Setup and a test tool using Core Audio directly. Logic Pro was opened once and behaved oddly: not validated. |
+
 ## Known limits
 
-- Tested on one card only (GS-R24, DICE firmware 1.0.12.0, A&H 4.2.0) with a MacBook Pro M1 Pro through Thunderbolt to FireWire adapters. No ZED-R16 tested.
+- Tested on one card only (see above). No ZED-R16 tested.
 - No MIDI yet. No external Word Clock tested (the daemon goes back to the internal clock when there is no signal).
 - Software that opens the card while the daemon runs (such as the `dicedump` tool) makes the FireWire bus reset: the sound stops for about 3 s.
 - Apple silicon only. The plug-in and the daemon are ad-hoc signed.
