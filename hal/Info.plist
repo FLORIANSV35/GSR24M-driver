@@ -8,8 +8,8 @@
 	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
 	<key>CFBundleName</key><string>GSR24M</string>
 	<key>CFBundlePackageType</key><string>BNDL</string>
-	<key>CFBundleShortVersionString</key><string>0.2.0</string>
-	<key>CFBundleVersion</key><string>2</string>
+	<key>CFBundleShortVersionString</key><string>0.2.1</string>
+	<key>CFBundleVersion</key><string>3</string>
 	<key>CFPlugInFactories</key>
 	<dict><key>DB9A189D-FA4C-44DC-BCE2-3F7B7CAE3628</key><string>GSR24MFactory</string></dict>
 	<key>CFPlugInTypes</key>

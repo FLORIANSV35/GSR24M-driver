@@ -101,6 +101,7 @@ int main(int argc, char **argv) {
     static float outF[512 * 32]; static uint8_t outBuf[512 * 96];
     Meter mi0 = {0}, mi31 = {0};
     uint64_t outPhase = 0;
+    atomic_store(&H->outWritten, 90000000ull);                                   // a stale, far too high position left by an old time line of the client
     int stIO = D->StartIO(drv, 2, 1); CHECK(stIO == 0, "StartIO");
     double tpf = 1.0e9 * tb.denom / tb.numer / (cardRate * (1.0 + 138e-6));
     uint64_t start = mach_absolute_time();
@@ -141,6 +142,7 @@ int main(int argc, char **argv) {
         prevZero = z; st1 = z; ht1 = zh; sd1 = zs;
     }
     D->StopIO(drv, 2, 1);
+    CHECK(atomic_load(&H->outWritten) < atomic_load(&H->inWritten) + 100000ull, "stale output position (90,000,000) replaced by the real one: %llu against input %llu", (unsigned long long)atomic_load(&H->outWritten), (unsigned long long)atomic_load(&H->inWritten));
     CHECK(zeroBad == 0 && zeroChecks > 10, "zero time stamps monotonic and on 4096-frame boundaries (%d checks)", zeroChecks);
     CHECK(sd0 == sd1 || 1, "seed %llu -> %llu", (unsigned long long)sd0, (unsigned long long)sd1);
     double dh = (double)(ht1 - ht0) * tb.numer / tb.denom / 1e9, ds = st1 - st0;

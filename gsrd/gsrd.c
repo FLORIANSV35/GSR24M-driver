@@ -923,7 +923,11 @@ static EndReason runSession(unsigned rate, unsigned *nextRate) {
                 atomic_store(&H->requestedRate, 0);
                 if (rr != rate && (rr == 44100 || rr == 48000 || rr == 88200 || rr == 96000)) { *nextRate = rr; reason = END_RATE; break; }
             }
-            { uint64_t w = atomic_load_explicit(&H->outWritten, memory_order_acquire);
+            { uint64_t w = atomic_load_explicit(&H->outWritten, memory_order_acquire), in = atomic_load_explicit(&H->inWritten, memory_order_relaxed);
+              if (w > in + 4ull * H->ringFrames) {              // a value left by an old time line of the client: forget it, the plug-in writes it again
+                  logf2("output position %" PRIu64 " is far ahead of the input position %" PRIu64 ": reset", w, in);
+                  atomic_store(&H->outWritten, 0); w = 0;
+              }
               if (w != gOutWSeen) { gOutWSeen = w; gOutWChanged = now; }
               gOutActive = (now - gOutWChanged) < 0.25; }
             if (!calibrated && now - t0 > 1.5) { calibrated = 1; calibrateOutput(); }

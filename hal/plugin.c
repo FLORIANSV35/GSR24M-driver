@@ -467,8 +467,12 @@ static OSStatus DoIO(AudioServerPlugInDriverRef d, AudioObjectID o, AudioObjectI
                 dst[c] = (float)v * (1.0f / 8388608.0f);
             }
         }
+        // Highest frame written, but follow the client when its sample time restarts (after a rate change the HAL starts a new time line):
+        // a position far behind the stored one replaces it, otherwise a stale high value would make every new frame look old.
         uint64_t end = (uint64_t)(s0 + n), cur = atomic_load_explicit(&h->outWritten, memory_order_relaxed);
-        while (end > cur && !atomic_compare_exchange_weak_explicit(&h->outWritten, &cur, end, memory_order_release, memory_order_relaxed)) {}
+        while (!(end <= cur && end + h->ringFrames >= cur)) {
+            if (atomic_compare_exchange_weak_explicit(&h->outWritten, &cur, end, memory_order_release, memory_order_relaxed)) break;
+        }
     }
     return kAudioHardwareNoError;
 }
