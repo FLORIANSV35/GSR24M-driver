@@ -1,0 +1,185 @@
+DICE DEVICE REPORT (dicedump, read-only, IOFireWireLib)
+=======================================================
+Generated: 2026-10-25T20:49:38Z
+
+IDENTITY
+--------
+GUID:          0x0004C40400400345
+Vendor:        A_H
+Model:         Allen_and_Heath_GS_R_24
+Vendor_ID:     0x0004C4
+Model_ID:      0x000001
+Unit_Spec_ID:  0x0004C4
+Unit_SW_Ver:   0x000001
+Node / gen:    0 / 7
+TCAT vendor:   0x0004C4
+TCAT category: 0x04
+TCAT product:  0x001
+TCAT serial:   837
+
+SECTION TABLES  (offsets and sizes in quadlets)
+-----------------------------------------------
+general space @ 0xFFFFE0000000
+  global       offset=0x0000A (0x000028 B)  size=0x0005F (380 B)
+  tx           offset=0x00069 (0x0001A4 B)  size=0x0008E (568 B)
+  rx           offset=0x000F7 (0x0003DC B)  size=0x0011A (1128 B)
+  ext_sync     offset=0x00211 (0x000844 B)  size=0x00004 (16 B)
+  unused2      offset=0x00000 (0x000000 B)  size=0x00000 (0 B)
+
+extension space @ 0xFFFFE0200000
+  <absent>
+
+GLOBAL
+--------
+OWNER              = 0xFFFF000000000000  (no owner)
+NOTIFICATION       = 0x00000000
+NICK_NAME          = 'GS R-24'
+CLOCK_SELECT       = 0x0000020C   source=12 (internal)  rate=2 (48000)
+ENABLE             = 0x00000000   streaming=no
+STATUS             = 0x00000201   locked=yes  nominal=48000
+EXTENDED_STATUS    = 0x00000000
+SAMPLE_RATE        = 48000 Hz  (measured)
+VERSION            = 0x01000C00   (1.0.12.0)
+CLOCK_CAPABILITIES = 0x1080001E
+    rates   : 44100 48000 88200 96000
+    sources : wc internal
+CLOCK_SOURCE_NAMES:
+    0   aes1      'AES12'
+    1   aes2      'AES34'
+    2   aes3      'AES56'
+    3   aes4      'AES78'
+    4   aes_any   'AES_ANY'
+    5   adat      'ADAT'
+    6   tdif      'ADAT_AUX'
+    7   wc        'Word Clock'
+    8   arx1      'Unused'
+    9   arx2      'Unused'
+    10  arx3      'Unused'
+    11  arx4      'Unused'
+    12  internal  'Internal'
+
+TX STREAMS  (device transmits -> host capture)
+----------------------------------------------
+NUMBER = 2   SIZE = 70 quadlets (280 bytes)
+
+  [stream 0]
+    ISOCHRONOUS  = -1  (disabled)
+    PCM channels = 16
+    MIDI ports   = 3
+    SPEED        = S400
+    NAMES:
+      0   'CH1/CH1/2'
+      1   'CH2/CH1/2'
+      2   'CH3/CH3/4'
+      3   'CH4/CH3/4'
+      4   'CH5/CH5/6'
+      5   'CH6/CH5/6'
+      6   'CH7/CH7/8'
+      7   'CH8/CH7/8'
+      8   'CH9/CH9/10'
+      9   'CH10/CH9/10'
+      10  'CH11/CH11/12'
+      11  'CH12/CH11/12'
+      12  'CH13/CH13/14'
+      13  'CH14/CH13/14'
+      14  'CH15/CH15/16'
+      15  'CH16/CH15/16'
+
+  [stream 1]
+    ISOCHRONOUS  = -1  (disabled)
+    PCM channels = 16
+    MIDI ports   = 0
+    SPEED        = S400
+    NAMES:
+      0   'CH17/CH17/18'
+      1   'CH18/CH17/18'
+      2   'CH19/CH19/20'
+      3   'CH20/CH19/20'
+      4   'CH21/CH21/22'
+      5   'CH22/CH21/22'
+      6   'CH23/CH23/24'
+      7   'CH24/CH23/24'
+      8   'CH25/CH25/26'
+      9   'CH26/CH25/26'
+      10  'CH27/CH27/28'
+      11  'CH28/CH27/28'
+      12  'CH29/CH29/30'
+      13  'CH30/CH29/30'
+      14  'CH31/CH31/32'
+      15  'CH32/CH31/32'
+
+RX STREAMS  (device receives <- host playback)
+----------------------------------------------
+NUMBER = 2   SIZE = 70 quadlets (280 bytes)
+
+  [stream 0]
+    ISOCHRONOUS  = -1  (disabled)
+    SEQ_START    = 0
+    PCM channels = 16
+    MIDI ports   = 3
+    NAMES:
+      0   'CH1/CH1/2'
+      1   'CH2/CH1/2'
+      2   'CH3/CH3/4'
+      3   'CH4/CH3/4'
+      4   'CH5/CH5/6'
+      5   'CH6/CH5/6'
+      6   'CH7/CH7/8'
+      7   'CH8/CH7/8'
+      8   'CH9/CH9/10'
+      9   'CH10/CH9/10'
+      10  'CH11/CH11/12'
+      11  'CH12/CH11/12'
+      12  'CH13/CH13/14'
+      13  'CH14/CH13/14'
+      14  'CH15/CH15/16'
+      15  'CH16/CH15/16'
+
+  [stream 1]
+    ISOCHRONOUS  = -1  (disabled)
+    SEQ_START    = 0
+    PCM channels = 16
+    MIDI ports   = 0
+    NAMES:
+      0   'CH17/CH17/18'
+      1   'CH18/CH17/18'
+      2   'CH19/CH19/20'
+      3   'CH20/CH19/20'
+      4   'CH21/CH21/22'
+      5   'CH22/CH21/22'
+      6   'CH23/CH23/24'
+      7   'CH24/CH23/24'
+      8   'CH25/CH25/26'
+      9   'CH26/CH25/26'
+      10  'CH27/CH27/28'
+      11  'CH28/CH27/28'
+      12  'CH29/CH29/30'
+      13  'CH30/CH29/30'
+      14  'CH31/CH31/32'
+      15  'CH32/CH31/32'
+
+EXT_SYNC
+--------
+CLOCK_SOURCE   = 12 (internal)
+LOCKED         = yes
+RATE           = 0 (32000)
+
+CONFIG ROM  (raw, big-endian quadlets @ 0xFFFFF0000400)
+-------------------------------------------------------
+header: bus_info_length=4 crc_length=4 crc=0x5BA7   (32 quadlets read)
+000: 04045ba7 31333934 e0008122 0004c404
+010: 00400345 0006af33 030004c4 8100000a
+020: 17000001 8100000c 0c0087c0 d1000001
+030: 0004b748 120004c4 13000001 17000001
+040: 8100000e 0003eeb2 00000000 00000000
+050: 415f4800 0008fbca 00000000 00000000
+060: 416c6c65 6e5f616e 645f4865 6174685f
+070: 47535f52 5f323400 0008fbca 00000000
+
+ROOT DIRECTORY  (6 entries)
+  key=0x03 type=0 value=0x0004C4
+  key=0x81 type=2 value=0x00000A
+  key=0x17 type=0 value=0x000001
+  key=0x81 type=2 value=0x00000C
+  key=0x0C type=0 value=0x0087C0
+  key=0xD1 type=3 value=0x000001

@@ -1,0 +1,36 @@
+# macOS / editor
+.DS_Store
+.vscode/
+
+# Never published: the manufacturer's installers, firmware and manual, decompiled vendor code, the ASFW fork
+AH DOWNLOAD/
+AP7784_1GS-R24_UG-1.pdf
+re/*.decompiled.c
+ASFireWire/
+ISSUE_DRAFT.md
+
+# Build output and binaries
+GSRCore/.build/
+GSRCore/build/
+dist/
+dicedump/dicedump
+gsrcap/gsrcap
+gsrcap/gsrlong
+gsrcap/gsrloop
+gsrcap/gsrplay
+gsrd/gsrd
+gsrd/ringcheck
+gsrd/gsrctl
+gsrd/ringprobe
+hal/devsim
+hal/harness
+hal/cadevtest
+hal/GSR24M.driver/
+spike/gsr24m-spike-helper
+spike/GSRSpike.driver/
+
+# Recordings
+*.wav
+gsrcap/mf/
+gsrcap/wav/
+dicedump/rapport.txt

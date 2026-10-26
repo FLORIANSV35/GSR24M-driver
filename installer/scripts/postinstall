@@ -1,0 +1,16 @@
+#!/bin/sh
+# Ownership, then start the daemon and restart coreaudiod so it loads the plug-in (audio on the Mac stops for a few seconds).
+LOG=/var/log/gsr24m-install.log
+{
+  echo "postinstall $(date)"
+  chown root:wheel /usr/local/libexec/gsrd /usr/local/libexec/gsr24m-uninstall.sh
+  chmod 755 /usr/local/libexec/gsrd /usr/local/libexec/gsr24m-uninstall.sh
+  chown root:wheel /Library/LaunchDaemons/com.gsr24m.gsrd.plist
+  chmod 644 /Library/LaunchDaemons/com.gsr24m.gsrd.plist
+  chown -R root:wheel /Library/Audio/Plug-Ins/HAL/GSR24M.driver
+  launchctl bootstrap system /Library/LaunchDaemons/com.gsr24m.gsrd.plist 2>&1 || true
+  sleep 1
+  killall coreaudiod 2>&1 || true
+  echo "done"
+} >> "$LOG" 2>&1
+exit 0

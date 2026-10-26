@@ -1,0 +1,13 @@
+#!/bin/sh
+# Stops a running gsrd (it puts the card back to idle on SIGTERM) and removes leftovers of the test installs.
+for label in com.gsr24m.gsrd com.gsr24m.devsim com.gsr24m.spike; do
+  launchctl bootout system/$label 2>/dev/null || true
+done
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  launchctl print system/com.gsr24m.gsrd >/dev/null 2>&1 || break
+  sleep 1
+done
+rm -f /Library/LaunchDaemons/com.gsr24m.devsim.plist /Library/LaunchDaemons/com.gsr24m.spike.plist
+rm -f /usr/local/libexec/gsr24m-devsim /usr/local/libexec/gsr24m-spike-helper
+rm -rf /Library/Audio/Plug-Ins/HAL/GSRSpike.driver
+exit 0
