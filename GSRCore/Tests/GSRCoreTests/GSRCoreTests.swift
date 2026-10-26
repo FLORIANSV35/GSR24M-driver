@@ -207,9 +207,9 @@ func syntheticReport(vendor: String, specID: String, guid: String) -> String {
     }
 
     @Test func noCardStillDecodes() throws {
-        let j = "{\"version\":1,\"state\":0,\"generation\":1,\"haveCard\":false,\"owned\":false,\"sessions\":0,\"busResets\":0,\"uptime\":3,\"leadMs\":80,\"ioClients\":0,\"inLate\":0,\"outLate\":0,\"inWritten\":0,\"cipErrors\":0,\"dbcJumps\":0,\"maxGapMs\":0,\"error\":\"carte occupée\",\"customIn\":[],\"customOut\":[]}"
+        let j = "{\"version\":1,\"state\":0,\"generation\":1,\"haveCard\":false,\"owned\":false,\"sessions\":0,\"busResets\":0,\"uptime\":3,\"leadMs\":80,\"ioClients\":0,\"inLate\":0,\"outLate\":0,\"inWritten\":0,\"cipErrors\":0,\"dbcJumps\":0,\"maxGapMs\":0,\"error\":\"card busy\",\"customIn\":[],\"customOut\":[]}"
         let i = try #require(DaemonInfo.decode(j))
-        #expect(i.report() == nil && i.error == "carte occupée")
+        #expect(i.report() == nil && i.error == "card busy")
     }
 
     @Test func operationModesMapToLeads() {

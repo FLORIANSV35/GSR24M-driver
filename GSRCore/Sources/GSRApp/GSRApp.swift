@@ -43,7 +43,7 @@ struct ContentView: View {
         VStack(spacing: 8) {
             topStrip
             if model.demo {
-                Text("DÉMO : GS-R24 simulée. Ces valeurs ne viennent pas de la carte.")
+                Text("DEMO: simulated GS-R24. These values do not come from the card.")
                     .font(.callout.bold()).foregroundStyle(.black)
                     .frame(maxWidth: .infinity).padding(6)
                     .background(.yellow, in: RoundedRectangle(cornerRadius: 6))
@@ -92,21 +92,21 @@ struct ContentView: View {
 
     private var topStrip: some View {
         HStack(spacing: 10) {
-            Text(model.demo ? "Démonstration" : (model.fileLabel.map { "Rapport : \($0)" } ?? (model.viaDaemon ? "Connecté au démon gsrd" : "Lecture directe de la carte (démon absent)")))
+            Text(model.demo ? "Demonstration" : (model.fileLabel.map { "Report: \($0)" } ?? (model.viaDaemon ? "Connected to the gsrd daemon" : "Reading the card directly (daemon not running)")))
                 .font(.callout).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
             if model.busy { ProgressView().controlSize(.small) }
             Spacer()
             switch updates.state {
             case .available(let v):
-                Button("Mise à jour \(v) : installer") { updates.install() }.tint(.orange).buttonStyle(.borderedProminent)
-            case .downloading: HStack(spacing: 4) { ProgressView().controlSize(.small); Text("Téléchargement…").font(.callout) }
-            case .opened: Text("Installateur ouvert").font(.callout).foregroundStyle(.green)
-            case .failed(let m): Text("Mise à jour : \(m)").font(.callout).foregroundStyle(.orange).lineLimit(1)
+                Button("Update \(v): install") { updates.install() }.tint(.orange).buttonStyle(.borderedProminent)
+            case .downloading: HStack(spacing: 4) { ProgressView().controlSize(.small); Text("Downloading…").font(.callout) }
+            case .opened: Text("Installer opened").font(.callout).foregroundStyle(.green)
+            case .failed(let m): Text("Update: \(m)").font(.callout).foregroundStyle(.orange).lineLimit(1)
             default: EmptyView()
             }
-            Toggle("Démo GSR24M", isOn: $model.demo).toggleStyle(.checkbox)
-            Button("Actualiser") { model.refresh() }.disabled(model.busy || model.demo)
-            Button("Ouvrir un rapport…") { importing = true }
+            Toggle("GSR24M demo", isOn: $model.demo).toggleStyle(.checkbox)
+            Button("Refresh") { model.refresh() }.disabled(model.busy || model.demo)
+            Button("Open a report…") { importing = true }
         }
     }
 
@@ -115,7 +115,7 @@ struct ContentView: View {
     private var deviceList: some View {
         VStack(spacing: 6) {
             if model.devices.isEmpty {
-                Text("Aucun appareil").foregroundStyle(.white.opacity(0.6)).padding(.top, 8)
+                Text("No device").foregroundStyle(.white.opacity(0.6)).padding(.top, 8)
             }
             ForEach(model.devices) { d in
                 let sel = d.id == model.selected?.id
@@ -173,14 +173,14 @@ struct ContentView: View {
                     }.labelsHidden().frame(width: 170).disabled(!(model.demo || model.viaDaemon)) }
                 if model.viaDaemon { operationModeTable(current: DaemonInfo.modeName(forLead: model.live?.leadMs ?? 80)) }
                 if model.viaDaemon {
-                    Text("Le changement de fréquence, de source ou de mode redémarre les flux audio (2 à 3 s). Word Clock : la carte ne verrouille que si le signal est à la fréquence choisie ; sinon (ou si le signal disparaît), le démon revient seul sur l'horloge interne.")
+                    Text("Changing the rate, the source or the mode restarts the audio streams (2 to 3 s). Word Clock: the card only locks if the signal is at the chosen rate; otherwise (or if the signal disappears) the daemon goes back to the internal clock by itself.")
                         .font(.caption).foregroundStyle(.white.opacity(0.7))
                     if !model.daemonNote.isEmpty { Text(model.daemonNote).font(.caption).foregroundStyle(.yellow) }
                 } else if !model.demo {
-                    Text("Réglages en lecture seule : le démon gsrd ne répond pas.")
+                    Text("Settings are read-only: the gsrd daemon does not answer.")
                         .font(.caption).foregroundStyle(.white.opacity(0.7))
                 }
-            } else { Text("Aucun appareil.").foregroundStyle(.white) }
+            } else { Text("No device.").foregroundStyle(.white) }
         }
     }
 
@@ -189,7 +189,7 @@ struct ContentView: View {
         let rate = Double(model.live?.rate ?? 48000)
         return VStack(alignment: .leading, spacing: 4) {
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 3) {
-                GridRow { Text("Mode"); Text("Avance"); Text("Sortie"); Text("Entrée") }
+                GridRow { Text("Mode"); Text("Lead"); Text("Output"); Text("Input") }
                     .font(.caption2.bold()).foregroundStyle(.white.opacity(0.6))
                 ForEach(DaemonInfo.modeLeads, id: \.name) { m in
                     let on = m.name == current
@@ -197,14 +197,14 @@ struct ContentView: View {
                     GridRow {
                         Text(m.name).fontWeight(on ? .bold : .regular)
                         Text("\(m.ms) ms")
-                        Text("≈ \(out) ms (\(Int(rate * Double(out) / 1000)) tr.)")
+                        Text("≈ \(out) ms (\(Int(rate * Double(out) / 1000)) fr.)")
                         Text("≈ \(inp) ms")
                     }
                     .font(.caption).foregroundStyle(on ? Color.yellow : .white)
                 }
             }
             if let i = model.live {
-                Text("Plus long trou : \(String(format: "%.1f", i.maxGapMs)) ms · retard entrée : \(i.inLate) tr. · retard sortie : \(i.outLate) tr.")
+                Text("Longest gap: \(String(format: "%.1f", i.maxGapMs)) ms · late input: \(i.inLate) fr. · late output: \(i.outLate) fr.")
                     .font(.caption2).foregroundStyle(.white.opacity(0.65))
             }
         }
@@ -214,8 +214,8 @@ struct ContentView: View {
     private var systemTab: some View {
         VStack(alignment: .leading, spacing: 8) {
             infoRow("macOS", ProcessInfo.processInfo.operatingSystemVersionString)
-            infoRow("Contrôleur FireWire (OHCI)", "pas encore lu dans cette version")
-            infoRow("Pilote", model.viaDaemon ? "démon gsrd + plug-in audio GS-R24M" : "aucun : lecture seule via IOFireWireLib")
+            infoRow("FireWire controller (OHCI)", "not read in this version")
+            infoRow("Driver", model.viaDaemon ? "gsrd daemon + GS-R24M audio plug-in" : "none: read-only through IOFireWireLib")
         }
     }
 
@@ -224,7 +224,7 @@ struct ContentView: View {
             if let d = model.selected {
                 let r = d.report
                 infoRow("Appareil", d.kind.rawValue)
-                infoRow("Fabricant", r.vendor); infoRow("Modèle", r.model)
+                infoRow("Manufacturer", r.vendor); infoRow("Model", r.model)
                 if let v = r.vendorID { infoRow("Vendor_ID", String(format: "0x%06X", v)) }
                 if let v = r.modelID { infoRow("Model_ID", String(format: "0x%06X", v)) }
                 if let v = r.unitSpecID { infoRow("Unit_Spec_ID", String(format: "0x%06X (%d)", v, v)) }
@@ -232,9 +232,9 @@ struct ContentView: View {
                 infoRow("Firmware DICE", r.version.isEmpty ? "—" : r.version)
             }
             HStack(alignment: .top) { FieldLabel("Application"); Text(UpdateChecker.currentVersion).foregroundStyle(.white)
-                Button(updates.state == .checking ? "Recherche…" : "Rechercher une mise à jour") { updates.check(manual: true) }
+                Button(updates.state == .checking ? "Checking…" : "Check for updates") { updates.check(manual: true) }
                     .disabled(updates.state == .checking || updates.state == .downloading)
-                if updates.state == .upToDate { Text("à jour").foregroundStyle(.green) }
+                if updates.state == .upToDate { Text("up to date").foregroundStyle(.green) }
             }
         }
     }
@@ -251,18 +251,18 @@ struct ContentView: View {
         var live: [Check] = []
         if let i = model.live, !model.demo {
             live = [
-                Check(ok: true, text: "Démon gsrd joignable (propriétaire de la carte : \(i.owned ? "oui" : "non"))"),
-                Check(ok: i.isStreaming, text: "Flux audio en marche"),
-                Check(ok: i.cipErrors == 0 && i.dbcJumps == 0, text: "Aucune erreur de paquet (CIP \(i.cipErrors), sauts DBC \(i.dbcJumps))"),
-                Check(ok: i.inLate == 0, text: "Aucune trame d'entrée en retard (\(i.inLate))"),
+                Check(ok: true, text: "gsrd daemon reachable (owns the card: \(i.owned ? "yes" : "no"))"),
+                Check(ok: i.isStreaming, text: "Audio streaming"),
+                Check(ok: i.cipErrors == 0 && i.dbcJumps == 0, text: "No packet errors (CIP \(i.cipErrors), DBC jumps \(i.dbcJumps))"),
+                Check(ok: i.inLate == 0, text: "No late input frames (\(i.inLate))"),
             ]
         }
         return live + [
-            Check(ok: true, text: "Appareil reconnu : \(d.kind.rawValue)"),
-            Check(ok: r.tcatCategory == 0x04, text: "Catégorie TCAT 0x04 (DICE standard)"),
-            Check(ok: r.locked, text: "Horloge verrouillée"),
-            Check(ok: r.currentRate.map { r.supportedRates.contains($0) } ?? false, text: "Fréquence dans la liste annoncée par la carte"),
-            Check(ok: !r.tx.isEmpty && !r.rx.isEmpty, text: "Flux d'entrée et de sortie annoncés (\(r.captureChannels) entrées, \(r.playbackChannels) sorties)"),
+            Check(ok: true, text: "Device recognised: \(d.kind.rawValue)"),
+            Check(ok: r.tcatCategory == 0x04, text: "TCAT category 0x04 (standard DICE)"),
+            Check(ok: r.locked, text: "Clock locked"),
+            Check(ok: r.currentRate.map { r.supportedRates.contains($0) } ?? false, text: "Rate is in the list the card announces"),
+            Check(ok: !r.tx.isEmpty && !r.rx.isEmpty, text: "Input and output streams announced (\(r.captureChannels) inputs, \(r.playbackChannels) outputs)"),
         ]
     }
 
@@ -280,7 +280,7 @@ struct ContentView: View {
             ForEach(Array(model.log.enumerated()), id: \.offset) { _, l in
                 Text(l).font(.callout.monospaced()).foregroundStyle(.white).textSelection(.enabled)
             }
-            Button("Copier le diagnostic") {
+            Button("Copy the diagnostic") {
                 var t = model.log.joined(separator: "\n")
                 if let d = model.selected { t += "\n" + checks(d).map { ($0.ok ? "OK  " : "KO  ") + $0.text }.joined(separator: "\n") }
                 NSPasteboard.general.clearContents(); NSPasteboard.general.setString(t, forType: .string)
@@ -298,14 +298,14 @@ struct ContentView: View {
             case .firmware:
                 VStack(alignment: .leading, spacing: 8) {
                     infoRow("Firmware DICE", d.report.version.isEmpty ? "—" : d.report.version)
-                    Text("Affichage seul. Cette application n'écrit jamais de firmware dans la carte.")
+                    Text("Display only. This application never writes firmware to the card.")
                         .foregroundStyle(.white.opacity(0.8))
                 }
             }
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Aucune GS-R24 ni ZED-R16 détectée").font(.title3.bold()).foregroundStyle(.white)
-                Text("Cette application ne pilote que ces deux appareils. Voir l'onglet Diagnostic pour la raison.")
+                Text("No GS-R24 or ZED-R16 detected").font(.title3.bold()).foregroundStyle(.white)
+                Text("This application only drives these two devices. See the Diagnostic tab for the reason.")
                     .foregroundStyle(.white.opacity(0.8))
             }
         }
@@ -335,19 +335,19 @@ struct ContentView: View {
     private func channels(_ d: Device) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 14) {
-                Toggle("Entrées", isOn: Binding(get: { !hideCapture }, set: { hideCapture = !$0 })).toggleStyle(.checkbox)
-                Toggle("Sorties", isOn: Binding(get: { !hidePlayback }, set: { hidePlayback = !$0 })).toggleStyle(.checkbox)
-                Toggle("Montrer les canaux masqués", isOn: $showHidden).toggleStyle(.checkbox)
-                Button("Tout réafficher") { hiddenChannels = "" }
+                Toggle("Inputs", isOn: Binding(get: { !hideCapture }, set: { hideCapture = !$0 })).toggleStyle(.checkbox)
+                Toggle("Outputs", isOn: Binding(get: { !hidePlayback }, set: { hidePlayback = !$0 })).toggleStyle(.checkbox)
+                Toggle("Show hidden channels", isOn: $showHidden).toggleStyle(.checkbox)
+                Button("Show all") { hiddenChannels = "" }
             }
             .foregroundStyle(.white)
-            if !hideCapture { streamGrid(d, d.report.tx, title: "Entrées (carte vers Mac)", prefix: "tx", dir: .input) }
-            if !hidePlayback { streamGrid(d, d.report.rx, title: "Sorties (Mac vers carte)", prefix: "rx", dir: .output) }
+            if !hideCapture { streamGrid(d, d.report.tx, title: "Inputs (card to Mac)", prefix: "tx", dir: .input) }
+            if !hidePlayback { streamGrid(d, d.report.rx, title: "Outputs (Mac to card)", prefix: "rx", dir: .output) }
             HStack {
-                Text("Double-clic ou clic droit sur un canal pour le renommer ou le masquer. Les noms sont gardés sur ce Mac, jamais écrits dans la carte, et repris par le plug-in audio pour les logiciels de musique (démon gsrd requis).")
+                Text("Double-click or right-click a channel to rename or hide it. Names are kept on this Mac, never written to the card, and picked up by the audio plug-in for music software (gsrd daemon required).")
                     .font(.caption).foregroundStyle(.white.opacity(0.6))
                 Spacer()
-                Button("Noms d'origine") { model.resetNames(d) }
+                Button("Original names") { model.resetNames(d) }
             }
         }
     }
@@ -357,7 +357,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title).font(.headline).foregroundStyle(.white)
             ForEach(streams, id: \.index) { s in
-                Text("Flux \(s.index) : \(s.pcmChannels) canaux" + (s.speed.map { ", \($0)" } ?? ""))
+                Text("Stream \(s.index): \(s.pcmChannels) channels" + (s.speed.map { ", \($0)" } ?? ""))
                     .font(.caption).foregroundStyle(.white.opacity(0.7))
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 118), spacing: 5)], alignment: .leading, spacing: 5) {
                     ForEach(Array(s.names.map(\.channelShortName).enumerated()), id: \.offset) { i, name in
@@ -372,11 +372,11 @@ struct ContentView: View {
                                 .help("Canal \(number) · nom d'origine : \(name)")
                                 .onTapGesture(count: 2) { renaming = RenameTarget(dir: dir, channel: number, original: custom ?? name) }
                                 .contextMenu {
-                                    Button("Renommer…") { renaming = RenameTarget(dir: dir, channel: number, original: custom ?? name) }
+                                    Button("Rename…") { renaming = RenameTarget(dir: dir, channel: number, original: custom ?? name) }
                                     if custom != nil {
-                                        Button("Nom d'origine") { model.setName(d, dir, channel: number, name: "") }
+                                        Button("Original name") { model.setName(d, dir, channel: number, name: "") }
                                     }
-                                    Button(hidden ? "Afficher ce canal" : "Masquer ce canal") { toggleChannel(key) }
+                                    Button(hidden ? "Show this channel" : "Hide this channel") { toggleChannel(key) }
                                 }
                         }
                     }
@@ -395,15 +395,15 @@ struct RenameSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Renommer \(target.dir == .input ? "l'entrée" : "la sortie") \(target.channel)").font(.headline)
-            TextField("Nom affiché dans les logiciels de musique", text: $text)
+            Text("Rename \(target.dir == .input ? "input" : "output") \(target.channel)").font(.headline)
+            TextField("Name shown in music software", text: $text)
                 .textFieldStyle(.roundedBorder).frame(width: 320)
                 .onSubmit { onSave(text); dismiss() }
-            Text("Laisser vide pour revenir au nom d'origine.").font(.caption).foregroundStyle(.secondary)
+            Text("Leave empty to go back to the original name.").font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
-                Button("Annuler") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Enregistrer") { onSave(text); dismiss() }.keyboardShortcut(.defaultAction)
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Save") { onSave(text); dismiss() }.keyboardShortcut(.defaultAction)
             }
         }
         .padding(18)

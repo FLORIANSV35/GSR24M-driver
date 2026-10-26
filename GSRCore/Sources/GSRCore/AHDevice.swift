@@ -22,15 +22,15 @@ public extension DiceReport {
             || tcatOUI == DiceReport.allenHeathSpecID
             || vendor.range(of: "allen", options: .caseInsensitive) != nil
         guard isAH else {
-            return (nil, "Pas un appareil Allen & Heath (fabricant \"\(vendor)\", Unit_Spec_ID \(unitSpecID.map { String(format: "0x%06X", $0) } ?? "inconnu")).")
+            return (nil, "Not an Allen & Heath device (manufacturer \"\(vendor)\", Unit_Spec_ID \(unitSpecID.map { String(format: "0x%06X", $0) } ?? "unknown")).")
         }
         guard tcatCategory == 0x04 else {
-            return (nil, "Catégorie TCAT \(tcatCategory.map { String(format: "0x%02X", $0) } ?? "inconnue") au lieu de 0x04 (DICE standard).")
+            return (nil, "TCAT category \(tcatCategory.map { String(format: "0x%02X", $0) } ?? "unknown") instead of 0x04 (standard DICE).")
         }
         switch tcatProduct {
         case 0: return (.zedr16, "ZED-R16")
         case 1: return (.gsr24, "GS-R24")
-        default: return (nil, "Produit TCAT \(tcatProduct.map(String.init) ?? "inconnu") : ni ZED-R16 (0) ni GS-R24 (1).")
+        default: return (nil, "Produit TCAT \(tcatProduct.map(String.init) ?? "unknown") : ni ZED-R16 (0) ni GS-R24 (1).")
         }
     }
 }

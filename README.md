@@ -1,51 +1,49 @@
-# GSR24M — pilote macOS pour la carte FireWire Allen & Heath GS-R24
+# GSR24M: macOS driver for the Allen & Heath GS-R24 FireWire card
 
-Fait fonctionner la carte FireWire **Allen & Heath GS-R24** (console GS-R24M) sur un Mac **Apple silicon** sous **macOS 13 ou plus**, sans extension noyau : une application, un démon et un plug-in audio CoreAudio.
+Makes the **Allen & Heath GS-R24** FireWire card (GS-R24M console) work on an **Apple silicon** Mac running **macOS 13 or later**, with no kernel extension: an application, a daemon and a CoreAudio plug-in. Not affiliated with Allen & Heath.
 
-*English: macOS driver for the Allen & Heath GS-R24 FireWire card (Apple silicon, no kernel extension): app + daemon + CoreAudio plug-in. Not affiliated with Allen & Heath.*
+## Install
 
-## Installer
+1. Download `GSR24M-x.y.z.pkg` from the [latest release](../../releases/latest) (the app can also do it: *Info → Check for updates*).
+2. Open the .pkg. The installer is not signed with an Apple developer account: if macOS refuses it, right-click the file and choose *Open*.
+3. When the installation ends, the Mac's sound stops for a few seconds (CoreAudio restarts).
 
-1. Télécharger `GSR24M-x.y.z.pkg` dans les [Releases](../../releases/latest) (l'application peut aussi le faire : *Info → Rechercher une mise à jour*).
-2. Ouvrir le .pkg. L'installateur n'est pas signé par un compte développeur Apple : si macOS le refuse, clic droit sur le fichier → *Ouvrir*.
-3. À la fin de l'installation le son du Mac s'arrête quelques secondes (redémarrage de CoreAudio).
+Installed: `/Applications/GSR24M.app`, the daemon `/usr/local/libexec/gsrd` (LaunchDaemon `com.gsr24m.gsrd`), the plug-in `/Library/Audio/Plug-Ins/HAL/GSR24M.driver`.
+Uninstall: `sudo /usr/local/libexec/gsr24m-uninstall.sh` (`--purge` also deletes the channel names kept by the daemon).
 
-Ce qui est installé : `/Applications/GSR24M.app`, le démon `/usr/local/libexec/gsrd` (LaunchDaemon `com.gsr24m.gsrd`), le plug-in `/Library/Audio/Plug-Ins/HAL/GSR24M.driver`.
-Désinstaller : `sudo /usr/local/libexec/gsr24m-uninstall.sh` (`--purge` efface aussi les noms de canaux gardés par le démon).
+## What it does
 
-## Ce que ça fait
+- CoreAudio device "GS-R24M FireWire": 32 inputs and 32 outputs, 44.1 / 48 / 88.2 / 96 kHz, 24 bit.
+- Channel names editable in the application, picked up by Audio MIDI Setup and audio software.
+- Sample rate, sync source (Internal / Word Clock) and latency mode set from the application.
+- Measured round trip inside the console: 2.2 ms (48 kHz). Output latency seen by software: playback lead (40 to 300 ms depending on the mode) + 3 ms.
 
-- Appareil CoreAudio « GS-R24M FireWire » : 32 entrées et 32 sorties, 44,1 / 48 / 88,2 / 96 kHz, 24 bits.
-- Noms de canaux modifiables dans l'application, repris par Audio MIDI Setup et les logiciels audio.
-- Changement de fréquence, de source de synchronisation (Internal / Word Clock) et de mode de latence depuis l'application.
-- Latence aller-retour dans la console mesurée : 2,2 ms (48 kHz) ; latence de sortie vue par un logiciel : avance de lecture (40 à 300 ms selon le mode) + 3 ms.
+## Known limits
 
-## Limites connues
+- Tested on one card only (GS-R24, DICE firmware 1.0.12.0, A&H 4.2.0) with a MacBook Pro M1 Pro through Thunderbolt to FireWire adapters. No ZED-R16 tested.
+- No MIDI yet. No external Word Clock tested (the daemon goes back to the internal clock when there is no signal).
+- Software that opens the card while the daemon runs (such as the `dicedump` tool) makes the FireWire bus reset: the sound stops for about 3 s.
+- Apple silicon only. The plug-in and the daemon are ad-hoc signed.
+- The daemon has no access control: any local process can change the rate and the names.
 
-- Testé sur une seule carte (GS-R24, firmware DICE 1.0.12.0, A&H 4.2.0) avec un MacBook Pro M1 Pro, via adaptateurs Thunderbolt → FireWire. Pas de ZED-R16 testé.
-- Pas de MIDI pour l'instant. Pas de Word Clock externe testé (retour automatique sur l'horloge interne s'il n'y a pas de signal).
-- Les logiciels qui ouvrent la carte pendant que le démon tourne (comme l'outil `dicedump`) font réinitialiser le bus : le son s'arrête environ 3 s.
-- Apple silicon uniquement. Le plug-in et le démon sont signés *ad hoc*.
-- Le démon n'a pas de contrôle d'accès : tout processus local peut changer fréquence et noms.
+## Project rules
 
-## Règles du projet
+No firmware is ever written to the card. Only volatile registers are changed (owner, clock, enable and channels of the streams) and put back when streaming stops. The manufacturer's firmware, installers and code are not part of this repository.
 
-Aucun firmware n'est jamais écrit dans la carte. Seuls des registres volatils sont modifiés (propriétaire, horloge, activation et canaux des flux) et remis en place à l'arrêt. Le firmware, les installateurs et le code du fabricant ne font pas partie de ce dépôt.
+## Build from source
 
-## Construire depuis les sources
+Tools: Command Line Tools (Xcode is not needed). `./build_release.sh` builds the daemon, the plug-in and the application, runs the tests and produces `dist/GSR24M-<version>.pkg` and its SHA-256 checksum. Version: the `VERSION` file.
 
-Outils : Command Line Tools (pas besoin de Xcode). `./build_release.sh` construit le démon, le plug-in, l'application, lance les tests et produit `dist/GSR24M-<version>.pkg` et sa somme SHA-256. Version : fichier `VERSION`.
-
-| Dossier | Contenu |
+| Folder | Content |
 | --- | --- |
-| `gsrd/` | démon (moteur FireWire isochrone, anneaux partagés, XPC) |
-| `hal/` | plug-in AudioServerPlugIn, simulateur et bancs d'essai |
-| `GSRCore/` | paquet Swift : modèles testés et application SwiftUI |
-| `dicedump/` | lecteur de registres DICE en lecture seule |
-| `gsrcap/` | outils d'essai en ligne de commande (capture, lecture, tenue, charge) |
-| `installer/` | scripts et textes de l'installateur |
-| `re/NOTES.md`, `ARCHITECTURE.md` | mesures, décisions, conception |
+| `gsrd/` | daemon (isochronous FireWire engine, shared rings, XPC) |
+| `hal/` | AudioServerPlugIn, simulator and test benches |
+| `GSRCore/` | Swift package: tested models and the SwiftUI application |
+| `dicedump/` | read-only DICE register reader |
+| `gsrcap/` | command line test tools (capture, playback, hold, load) |
+| `installer/` | installer scripts and texts |
+| `re/NOTES.md`, `ARCHITECTURE.md` | measurements, decisions, design |
 
-## Licence
+## License
 
-Apache-2.0 (voir `LICENSE`). Les connaissances sur le protocole DICE viennent en partie du projet [ASFireWire](https://github.com/mrmidi/ASFireWire) (Apache-2.0).
+Apache-2.0 (see `LICENSE`). Part of the knowledge about the DICE protocol comes from the [ASFireWire](https://github.com/mrmidi/ASFireWire) project (Apache-2.0).

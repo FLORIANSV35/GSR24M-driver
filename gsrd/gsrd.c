@@ -827,10 +827,10 @@ static EndReason runSession(unsigned rate, unsigned *nextRate) {
     if (!setClock(rate, gSourceIdx)) {
         if (gSourceIdx != 12) {
             logf2("no lock on %s at %u Hz: back to the internal clock", kSourceId[gSourceIdx], rate);
-            snprintf(gLastError, sizeof gLastError, "pas de signal %s à %u Hz : retour à l'horloge interne", gSourceIdx == 7 ? "Word Clock" : kSourceId[gSourceIdx], rate);
+            snprintf(gLastError, sizeof gLastError, "no %s signal at %u Hz: back to the internal clock", gSourceIdx == 7 ? "Word Clock" : kSourceId[gSourceIdx], rate);
             gSourceIdx = 12;
             if (!setClock(rate, 12)) { logf2("the card did not lock at %u Hz even on the internal clock", rate); goto done; }
-        } else { logf2("the card did not lock at %u Hz", rate); snprintf(gLastError, sizeof gLastError, "la carte ne verrouille pas à %u Hz", rate); goto done; }
+        } else { logf2("the card did not lock at %u Hz", rate); snprintf(gLastError, sizeof gLastError, "the card does not lock at %u Hz", rate); goto done; }
     }
     unsigned pcmT[NSTREAM], midiT[NSTREAM], pcmR[NSTREAM], midiR[NSTREAM];
     for (unsigned i = 0; i < NSTREAM; i++) {
@@ -947,7 +947,7 @@ static EndReason runSession(unsigned rate, unsigned *nextRate) {
                   unlockedPolls = lk ? 0 : unlockedPolls + 1;
                   if (gSourceIdx != 12 && unlockedPolls >= 3) {
                       logf2("the card lost the external clock: back to the internal clock");
-                      snprintf(gLastError, sizeof gLastError, "signal %s perdu : retour à l'horloge interne", gSourceIdx == 7 ? "Word Clock" : "externe");
+                      snprintf(gLastError, sizeof gLastError, "%s signal lost: back to the internal clock", gSourceIdx == 7 ? "Word Clock" : "external");
                       gSourceIdx = 12; gRestartWanted = 1; unlockedPolls = 0;
                   } }
             }
@@ -1094,7 +1094,7 @@ int main(int argc, char **argv) {
         cardEverOpened = 1;
         // A card left dirty (streaming, or channels set) by an aborted run is cleaned only if nobody owns it.
         UInt32 o0 = 0, o1 = 0; rq(gGlobalOff, &o0); rq(gGlobalOff + 4, &o1);
-        if (o0 != 0xFFFF0000u || o1 != 0) { logf2("card is owned by another host (0x%08x%08x); waiting", o0, o1); snprintf(gLastError, sizeof gLastError, "carte occupée par un autre pilote (OWNER 0x%08x%08x)", o0, o1); closeCard(); CFRunLoopRunInMode(kCFRunLoopDefaultMode, 3.0, false); continue; }
+        if (o0 != 0xFFFF0000u || o1 != 0) { logf2("card is owned by another host (0x%08x%08x); waiting", o0, o1); snprintf(gLastError, sizeof gLastError, "card owned by another driver (OWNER 0x%08x%08x)", o0, o1); closeCard(); CFRunLoopRunInMode(kCFRunLoopDefaultMode, 3.0, false); continue; }
         cleanCard();
         if (!takeOwner()) { closeCard(); CFRunLoopRunInMode(kCFRunLoopDefaultMode, 3.0, false); continue; }
         if (!want) { unsigned code = (cs >> 8) & 0xFF; want = code < 7 ? kRateTbl[code] : 48000; if (want != 44100 && want != 48000 && want != 88200 && want != 96000) want = 48000; }
@@ -1103,7 +1103,7 @@ int main(int argc, char **argv) {
             unsigned next = want;
             EndReason r = runSession(want, &next);
             if (r == END_QUIT) break;
-            if (r == END_BUSRESET) { logf2("bus reset"); gBusResets++; snprintf(gLastError, sizeof gLastError, "reset du bus FireWire"); break; }
+            if (r == END_BUSRESET) { logf2("bus reset"); gBusResets++; snprintf(gLastError, sizeof gLastError, "FireWire bus reset"); break; }
             if (r == END_RATE) { want = next; errors = 0; continue; }
             if (++errors >= 4) { logf2("giving up on this card for now"); break; }
             CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0, false);

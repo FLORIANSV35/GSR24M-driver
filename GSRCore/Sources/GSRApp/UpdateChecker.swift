@@ -33,27 +33,27 @@ final class UpdateChecker: ObservableObject {
                 UserDefaults.standard.set(Date(), forKey: lastCheckKey)
                 let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 if code == 404 { state = manual ? .upToDate : .idle; return }          // no release published yet
-                guard code == 200, let r = ReleaseInfo.parse(data) else { state = manual ? .failed("réponse de GitHub illisible") : .idle; return }
+                guard code == 200, let r = ReleaseInfo.parse(data) else { state = manual ? .failed("unreadable answer from GitHub") : .idle; return }
                 if r.isNewer(than: Self.currentVersion) { release = r; state = .available(version: r.version.description) }
                 else { state = manual ? .upToDate : .idle }
             } catch {
-                state = manual ? .failed("pas de réponse de GitHub") : .idle
+                state = manual ? .failed("no answer from GitHub") : .idle
             }
         }
     }
 
     /// Downloads the installer, checks its SHA-256 against the checksum file of the release, then opens it.
     func install() {
-        guard let r = release, let pkg = r.installerURL else { state = .failed("pas d'installateur dans cette version"); return }
+        guard let r = release, let pkg = r.installerURL else { state = .failed("no installer in this version"); return }
         state = .downloading
         Task {
             do {
                 let (tmp, _) = try await URLSession.shared.download(from: pkg)
                 if let sumURL = r.checksumURL {
                     let (sd, _) = try await URLSession.shared.data(from: sumURL)
-                    guard let want = ReleaseInfo.checksum(from: String(decoding: sd, as: UTF8.self)) else { state = .failed("somme de contrôle illisible"); return }
+                    guard let want = ReleaseInfo.checksum(from: String(decoding: sd, as: UTF8.self)) else { state = .failed("unreadable checksum"); return }
                     let got = SHA256.hash(data: try Data(contentsOf: tmp)).map { String(format: "%02x", $0) }.joined()
-                    guard got == want else { state = .failed("téléchargement corrompu (somme de contrôle différente)"); return }
+                    guard got == want else { state = .failed("corrupted download (checksum differs)"); return }
                 }
                 let dest = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0].appendingPathComponent(pkg.lastPathComponent)
                 try? FileManager.default.removeItem(at: dest)
@@ -61,7 +61,7 @@ final class UpdateChecker: ObservableObject {
                 NSWorkspace.shared.open(dest)
                 state = .opened
             } catch {
-                state = .failed("téléchargement impossible")
+                state = .failed("download failed")
             }
         }
     }

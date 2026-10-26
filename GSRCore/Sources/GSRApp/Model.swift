@@ -19,7 +19,7 @@ enum Demo {
         r.unitSpecID = 0x0004C4
         r.nickName = "GS R-24"
         r.clockSourceID = "internal"; r.currentRate = 44100; r.locked = true
-        r.version = "démo (simulé)"
+        r.version = "demo (simulated)"
         r.supportedRates = [44100, 48000, 88200, 96000]
         r.supportedSources = ["adat", "wc", "internal"]
         let ids = ["aes1", "aes2", "aes3", "aes4", "aes_any", "adat", "tdif", "wc",
@@ -83,7 +83,7 @@ final class AppModel: ObservableObject {
         let l = names.lists(guid: guid)
         DispatchQueue.global(qos: .userInitiated).async {
             let ok = self.client.setNames(inputs: l.inputs, outputs: l.outputs)
-            DispatchQueue.main.async { if !ok { self.daemonNote = "Le démon a refusé les noms." } }
+            DispatchQueue.main.async { if !ok { self.daemonNote = "The daemon refused the names." } }
         }
     }
 
@@ -91,7 +91,7 @@ final class AppModel: ObservableObject {
         guard viaDaemon else { demoSetRate(hz); return }
         DispatchQueue.global(qos: .userInitiated).async {
             let ok = self.client.setRate(hz)
-            DispatchQueue.main.async { self.daemonNote = ok ? "Changement de fréquence demandé : \(hz) Hz" : "Fréquence refusée par le démon." }
+            DispatchQueue.main.async { self.daemonNote = ok ? "Rate change requested: \(hz) Hz" : "Rate refused by the daemon." }
         }
     }
 
@@ -99,7 +99,7 @@ final class AppModel: ObservableObject {
         guard viaDaemon else { demoSetSource(id); return }
         DispatchQueue.global(qos: .userInitiated).async {
             let ok = self.client.setSource(id)
-            DispatchQueue.main.async { self.daemonNote = ok ? "Changement de source demandé : \(id)" : "Source refusée par le démon." }
+            DispatchQueue.main.async { self.daemonNote = ok ? "Source change requested: \(id)" : "Source refused by the daemon." }
         }
     }
 
@@ -107,7 +107,7 @@ final class AppModel: ObservableObject {
         guard viaDaemon, let ms = DaemonInfo.modeLeads.first(where: { $0.name == name })?.ms else { return }
         DispatchQueue.global(qos: .userInitiated).async {
             let ok = self.client.setLead(ms: ms)
-            DispatchQueue.main.async { self.daemonNote = ok ? "Mode demandé : \(name) (\(ms) ms d'avance)" : "Mode refusé par le démon." }
+            DispatchQueue.main.async { self.daemonNote = ok ? "Mode requested: \(name) (\(ms) ms lead)" : "Mode refused by the daemon." }
         }
     }
 
@@ -151,21 +151,21 @@ final class AppModel: ObservableObject {
     }
 
     static func daemonLog(_ i: DaemonInfo) -> [String] {
-        var l = ["Démon gsrd : actif depuis \(Int(i.uptime)) s, \(i.sessions) session(s), \(i.busResets) reset(s) du bus."]
-        if !i.haveCard { l.append("Aucune carte prise en charge : " + (i.error.isEmpty ? "carte absente ou éteinte." : i.error)) }
+        var l = ["gsrd daemon: running for \(Int(i.uptime)) s, \(i.sessions) session(s), \(i.busResets) bus reset(s)."]
+        if !i.haveCard { l.append("No supported card: " + (i.error.isEmpty ? "card missing or switched off." : i.error)) }
         else {
-            l.append(i.isStreaming ? "Flux audio en marche à \(i.rate ?? 0) Hz." : "Carte vue, flux arrêté.")
-            l.append("Paquets : erreurs CIP \(i.cipErrors), sauts DBC \(i.dbcJumps), plus long trou \(String(format: "%.1f", i.maxGapMs)) ms.")
-            l.append("Trames en retard : entrée \(i.inLate), sortie \(i.outLate). Applications audio actives : \(i.ioClients).")
-            l.append("Avance de lecture : \(i.leadMs) ms. Génération des flux : \(i.generation).")
-            if !i.error.isEmpty { l.append("Dernier incident : " + i.error) }
+            l.append(i.isStreaming ? "Audio streaming at \(i.rate ?? 0) Hz." : "Card seen, streams stopped.")
+            l.append("Packets: CIP errors \(i.cipErrors), DBC jumps \(i.dbcJumps), longest gap \(String(format: "%.1f", i.maxGapMs)) ms.")
+            l.append("Late frames: input \(i.inLate), output \(i.outLate). Active audio applications: \(i.ioClients).")
+            l.append("Playback lead: \(i.leadMs) ms. Stream generation: \(i.generation).")
+            if !i.error.isEmpty { l.append("Last incident: " + i.error) }
         }
         return l
     }
 
     private func startDemo() {
         devices = [Demo.gsr24()]; selectedID = devices[0].id; fileLabel = nil
-        log = ["Mode démonstration : données simulées, rien n'est lu sur la carte."]
+        log = ["Demonstration mode: simulated data, nothing is read from the card."]
     }
 
     // Simulated changes, demo only.
@@ -176,10 +176,10 @@ final class AppModel: ObservableObject {
         guard !busy, !demo else { return }
         if live != nil || AppModel.daemonInstalled {
             poll()
-            if live == nil { log = ["Le démon gsrd est installé mais ne répond pas (il redémarre peut-être). Aucune lecture directe de la carte n'est faite pour ne pas la perturber."] }
+            if live == nil { log = ["The gsrd daemon is installed but does not answer (it may be restarting). The card is not read directly, so as not to disturb it."] }
             return
         }
-        busy = true; fileLabel = nil; log = ["Recherche des appareils FireWire…"]
+        busy = true; fileLabel = nil; log = ["Looking for FireWire devices…"]
         DispatchQueue.global(qos: .userInitiated).async {
             let (found, lines) = AppModel.scan()
             DispatchQueue.main.async {
@@ -195,7 +195,7 @@ final class AppModel: ObservableObject {
     private static func run(_ tool: URL, _ args: [String]) -> (code: Int32, out: String, err: String) {
         let p = Process(); p.executableURL = tool; p.arguments = args
         let o = Pipe(), e = Pipe(); p.standardOutput = o; p.standardError = e
-        do { try p.run() } catch { return (-1, "", "Impossible de lancer dicedump : \(error)") }
+        do { try p.run() } catch { return (-1, "", "Could not run dicedump: \(error)") }
         let od = o.fileHandleForReading.readDataToEndOfFile()
         let ed = e.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
@@ -204,33 +204,33 @@ final class AppModel: ObservableObject {
 
     static func scan() -> ([Device], [String]) {
         guard let tool = Bundle.main.url(forResource: "dicedump", withExtension: nil) else {
-            return ([], ["Outil de lecture dicedump absent de l'application."])
+            return ([], ["The dicedump reading tool is missing from the application."])
         }
         var lines: [String] = []
         let list = run(tool, ["-l"])
         if list.code != 0 && list.out.isEmpty {
-            lines.append("Aucun appareil FireWire vu par le Mac.")
-            lines.append("Vérifiez : carte allumée, câble FireWire 800 vers 400, chaîne d'adaptateurs Thunderbolt, puis Actualiser.")
+            lines.append("No FireWire device seen by the Mac.")
+            lines.append("Check: card switched on, FireWire 800 to 400 cable, Thunderbolt adapter chain, then Refresh.")
             if !list.err.isEmpty { lines.append(list.err.trimmingCharacters(in: .whitespacesAndNewlines)) }
             return ([], lines)
         }
         var out: [Device] = []
         for l in list.out.split(separator: "\n") {
-            lines.append("Vu : " + l)
+            lines.append("Seen: " + l)
             guard l.contains("allen_heath=1"), let g = l.split(separator: " ").dropFirst().first else { continue }
             let dump = run(tool, ["-g", String(g)])
             if dump.code != 0 {
-                lines.append("Lecture de \(g) impossible : " + dump.err.trimmingCharacters(in: .whitespacesAndNewlines))
+                lines.append("Could not read \(g): " + dump.err.trimmingCharacters(in: .whitespacesAndNewlines))
                 continue
             }
             do {
                 let r = try DiceReport.parse(dump.out)
                 let check = r.ahCheck()
                 if let k = check.kind { out.append(Device(report: r, kind: k)) } else { lines.append(check.reason) }
-            } catch { lines.append("Rapport illisible pour \(g) : \(error)") }
+            } catch { lines.append("Unreadable report for \(g): \(error)") }
         }
-        if out.isEmpty && !lines.contains(where: { $0.hasPrefix("Lecture") || $0.hasPrefix("Pas un") }) {
-            lines.append("Des appareils FireWire sont présents mais aucun n'est une GS-R24 ou une ZED-R16.")
+        if out.isEmpty && !lines.contains(where: { $0.hasPrefix("Could not read") || $0.hasPrefix("Not an") }) {
+            lines.append("FireWire devices are present but none is a GS-R24 or a ZED-R16.")
         }
         return (out, lines)
     }
@@ -241,9 +241,9 @@ final class AppModel: ObservableObject {
         do {
             let r = try DiceReport.parse(try String(contentsOf: url, encoding: .utf8))
             let check = r.ahCheck()
-            guard let k = check.kind else { log = ["Rapport refusé : " + check.reason]; return }
+            guard let k = check.kind else { log = ["Report refused: " + check.reason]; return }
             devices = [Device(report: r, kind: k)]; selectedID = devices[0].id
             fileLabel = url.lastPathComponent; log = []
-        } catch { log = ["Lecture impossible : \(error)"] }
+        } catch { log = ["Could not read the file: \(error)"] }
     }
 }
