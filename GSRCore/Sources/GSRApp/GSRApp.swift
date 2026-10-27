@@ -109,7 +109,8 @@ struct ContentView: View {
             case .available(let v):
                 Button("Update \(v): install") { updates.install() }.tint(.orange).buttonStyle(.borderedProminent)
             case .downloading: HStack(spacing: 4) { ProgressView().controlSize(.small); Text("Downloading…").font(.callout) }
-            case .opened: Text("Installer opened").font(.callout).foregroundStyle(.green)
+            case .opened: Text("Installer opened: the application restarts when it is done").font(.callout).foregroundStyle(.green)
+            case .restarting: HStack(spacing: 4) { ProgressView().controlSize(.small); Text("Restarting…").font(.callout).foregroundStyle(.green) }
             case .failed(let m): Text("Update: \(m)").font(.callout).foregroundStyle(.orange).lineLimit(1)
             default: EmptyView()
             }

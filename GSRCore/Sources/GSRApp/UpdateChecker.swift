@@ -10,11 +10,14 @@ final class UpdateChecker: ObservableObject {
     enum State: Equatable {
         case idle, checking, upToDate
         case available(version: String)
-        case downloading, opened
+        case downloading, opened, restarting
         case failed(String)
     }
     @Published private(set) var state = State.idle
     private var release: ReleaseInfo?
+    private var watcher: Task<Void, Never>?
+    /// Where the installer puts the application.
+    static let installedApp = URL(fileURLWithPath: "/Applications/GSR24M.app")
 
     static var currentVersion: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0" }
     private let lastCheckKey = "lastUpdateCheck"
@@ -60,10 +63,44 @@ final class UpdateChecker: ObservableObject {
                 try FileManager.default.moveItem(at: tmp, to: dest)
                 NSWorkspace.shared.open(dest)
                 state = .opened
+                watchInstall()
             } catch {
                 state = .failed("download failed")
             }
         }
+    }
+
+    /// The installer replaces the application on disk while this copy keeps running. When the installed version is newer than the running one, the
+    /// application is started again from the installed copy and this one quits. Looks every 2 s, up to 20 minutes (the user may take a while to
+    /// type the password).
+    private func watchInstall() {
+        watcher?.cancel()
+        watcher = Task {
+            for _ in 0..<600 {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                if Task.isCancelled { return }
+                guard let v = Self.installedVersion(), let installed = SemVer(v), let running = SemVer(Self.currentVersion), installed > running else { continue }
+                state = .restarting
+                try? await Task.sleep(nanoseconds: 2_500_000_000)             // the installer is still finishing (daemon, plug-in)
+                Self.relaunch()
+                return
+            }
+        }
+    }
+
+    static func installedVersion() -> String? {
+        let plist = installedApp.appendingPathComponent("Contents/Info.plist")
+        guard let d = NSDictionary(contentsOf: plist) else { return nil }
+        return d["CFBundleShortVersionString"] as? String
+    }
+
+    /// Starts the installed application in a moment, then quits this one.
+    static func relaunch() {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", "sleep 1; /usr/bin/open -n \"\(installedApp.path)\""]
+        try? p.run()
+        NSApplication.shared.terminate(nil)
     }
 
     var releasePage: URL? { release?.pageURL }
