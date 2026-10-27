@@ -2,6 +2,23 @@ import SwiftUI
 import AppKit
 import GSRCore
 
+/// Only one copy of the application at a time: two of them would both talk to the daemon and to the MIDI agent. A second launch brings the first
+/// window to the front and quits. The copy the updater starts (`--after-update`) first waits for the old one, which is quitting.
+enum SingleInstance {
+    static func enforce() {
+        guard let id = Bundle.main.bundleIdentifier, !CommandLine.arguments.contains("--render-midi") else { return }
+        let me = ProcessInfo.processInfo.processIdentifier
+        func others() -> [NSRunningApplication] { NSRunningApplication.runningApplications(withBundleIdentifier: id).filter { $0.processIdentifier != me && !$0.isTerminated } }
+        if CommandLine.arguments.contains("--after-update") {
+            for _ in 0..<80 where !others().isEmpty { Thread.sleep(forTimeInterval: 0.1) }
+        }
+        if let other = others().first {
+            other.activate(options: [.activateAllWindows])
+            exit(0)
+        }
+    }
+}
+
 @main
 struct GSRApp: App {
     @StateObject private var model = AppModel()
@@ -9,6 +26,7 @@ struct GSRApp: App {
     @StateObject private var recall = RecallModel()
     @StateObject private var midi = MIDIModel()
     init() {
+        SingleInstance.enforce()
         if let i = CommandLine.arguments.firstIndex(of: "--render-midi"), i + 1 < CommandLine.arguments.count {
             MIDIPreview.render(to: CommandLine.arguments[i + 1]); exit(0)
         }

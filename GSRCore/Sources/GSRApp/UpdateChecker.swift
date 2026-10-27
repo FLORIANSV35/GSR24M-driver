@@ -98,7 +98,7 @@ final class UpdateChecker: ObservableObject {
     static func relaunch() {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
-        p.arguments = ["-c", "sleep 1; /usr/bin/open -n \"\(installedApp.path)\""]
+        p.arguments = ["-c", "sleep 1; /usr/bin/open -n \"\(installedApp.path)\" --args --after-update"]
         try? p.run()
         NSApplication.shared.terminate(nil)
     }
