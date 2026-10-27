@@ -6,9 +6,16 @@ import GSRCore
 struct GSRApp: App {
     @StateObject private var model = AppModel()
     @StateObject private var updates = UpdateChecker()
+    @StateObject private var recall = RecallModel()
+    @StateObject private var midi = MIDIModel()
+    init() {
+        if let i = CommandLine.arguments.firstIndex(of: "--render-midi"), i + 1 < CommandLine.arguments.count {
+            MIDIPreview.render(to: CommandLine.arguments[i + 1]); exit(0)
+        }
+    }
     var body: some Scene {
         WindowGroup("Allen and Heath Firewire") {
-            ContentView().environmentObject(model).environmentObject(updates)
+            ContentView().environmentObject(model).environmentObject(updates).environmentObject(recall).environmentObject(midi)
                 .onAppear { if !CommandLine.arguments.contains("--demo") { updates.check() } }
                 .frame(minWidth: 760, minHeight: 640)
                 .preferredColorScheme(.dark)
@@ -16,14 +23,14 @@ struct GSRApp: App {
     }
 }
 
-enum GlobalTab: String, CaseIterable { case bus = "Bus", system = "System", info = "Info", diag = "Diagnostic" }
-enum DeviceTab: String, CaseIterable { case general = "General", channels = "Channels", firmware = "Firmware" }
+enum GlobalTab: String, CaseIterable { case monitor = "Monitor", bus = "Bus", system = "System", info = "Info", diag = "Diagnostic" }
+enum DeviceTab: String, CaseIterable { case general = "General", channels = "Channels", recall = "Recall", midi = "MIDI", firmware = "Firmware" }
 
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var updates: UpdateChecker
-    @State private var gTab = GlobalTab.bus
-    @State private var dTab = DeviceTab.general
+    @State private var gTab = GlobalTab.monitor
+    @State private var dTab = CommandLine.arguments.contains("--recall") ? DeviceTab.recall : CommandLine.arguments.contains("--midi") ? DeviceTab.midi : DeviceTab.general
     @State private var importing = false
     @AppStorage("opMode") private var opMode = "Normal Mode"
     @AppStorage("hideCapture") private var hideCapture = false
@@ -48,14 +55,16 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity).padding(6)
                     .background(.yellow, in: RoundedRectangle(cornerRadius: 6))
             }
-            Bar(title: "Global Settings")
-            Panel {
-                VStack(alignment: .leading, spacing: 10) {
-                    TabRow(items: GlobalTab.allCases, title: { $0.rawValue }, selection: $gTab)
-                    ScrollView { globalContent.frame(maxWidth: .infinity, alignment: .leading) }
+            if dTab != .recall && dTab != .midi {          // the Recall and MIDI tabs need the whole window
+                Bar(title: "Global Settings")
+                Panel {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TabRow(items: GlobalTab.allCases, title: { $0.rawValue }, selection: $gTab)
+                        ScrollView { globalContent.frame(maxWidth: .infinity, alignment: .leading) }
+                    }
                 }
+                .frame(height: 330)
             }
-            .frame(height: 330)
             Bar(title: "Device Settings")
             HStack(alignment: .top, spacing: 10) {
                 Panel {
@@ -141,6 +150,7 @@ struct ContentView: View {
 
     @ViewBuilder private var globalContent: some View {
         switch gTab {
+        case .monitor: LoadPanel().environmentObject(model.load)
         case .bus: busTab
         case .system: systemTab
         case .info: infoTab
@@ -203,7 +213,7 @@ struct ContentView: View {
                     .font(.caption).foregroundStyle(on ? Color.yellow : .white)
                 }
             }
-            if let i = model.live {
+            if let i = model.live.map({ $0.minus(model.counterBase) }) {
                 Text("Longest gap: \(String(format: "%.1f", i.maxGapMs)) ms · late input: \(i.inLate) fr. · late output: \(i.outLate) fr.")
                     .font(.caption2).foregroundStyle(.white.opacity(0.65))
             }
@@ -249,12 +259,12 @@ struct ContentView: View {
     private func checks(_ d: Device) -> [Check] {
         let r = d.report
         var live: [Check] = []
-        if let i = model.live, !model.demo {
+        if let i = model.live.map({ $0.minus(model.counterBase) }), !model.demo {
             live = [
                 Check(ok: true, text: "gsrd daemon reachable (owns the card: \(i.owned ? "yes" : "no"))"),
                 Check(ok: i.isStreaming, text: "Audio streaming"),
                 Check(ok: i.cipErrors == 0 && i.dbcJumps == 0, text: "No packet errors (CIP \(i.cipErrors), DBC jumps \(i.dbcJumps))"),
-                Check(ok: i.inLate == 0, text: "No late input frames (\(i.inLate))"),
+                Check(ok: !model.load.active(.lateIn), text: "No late input frames in the last 30 s (total since the daemon started or since Reset: \(i.inLate))"),
             ]
         }
         return live + [
@@ -280,6 +290,7 @@ struct ContentView: View {
             ForEach(Array(model.log.enumerated()), id: \.offset) { _, l in
                 Text(l).font(.callout.monospaced()).foregroundStyle(.white).textSelection(.enabled)
             }
+            Button("Reset counters") { model.resetCounters() }.disabled(model.live == nil)
             Button("Copy the diagnostic") {
                 var t = model.log.joined(separator: "\n")
                 if let d = model.selected { t += "\n" + checks(d).map { ($0.ok ? "OK  " : "KO  ") + $0.text }.joined(separator: "\n") }
@@ -295,6 +306,8 @@ struct ContentView: View {
             switch dTab {
             case .general: general(d)
             case .channels: channels(d)
+            case .recall: RecallView()
+            case .midi: MIDIView()
             case .firmware:
                 VStack(alignment: .leading, spacing: 8) {
                     infoRow("Firmware DICE", d.report.version.isEmpty ? "—" : d.report.version)

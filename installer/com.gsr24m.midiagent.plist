@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.gsr24m.midiagent</string>
+    <key>ProgramArguments</key><array><string>/usr/local/libexec/gsrmidiagent</string></array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>5</integer>
+    <key>ProcessType</key><string>Interactive</string>
+    <key>MachServices</key><dict><key>com.gsr24m.midiagent</key><true/></dict>
+    <key>StandardErrorPath</key><string>/tmp/gsr24m-midiagent.log</string>
+</dict>
+</plist>

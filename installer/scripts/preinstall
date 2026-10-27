@@ -1,5 +1,7 @@
 #!/bin/sh
 # Stops a running gsrd (it puts the card back to idle on SIGTERM) and removes leftovers of the test installs.
+CUID=$(stat -f %u /dev/console)
+[ -n "$CUID" ] && [ "$CUID" != "0" ] && launchctl bootout gui/$CUID/com.gsr24m.midiagent 2>/dev/null
 for label in com.gsr24m.gsrd com.gsr24m.devsim com.gsr24m.spike; do
   launchctl bootout system/$label 2>/dev/null || true
 done

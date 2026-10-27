@@ -38,6 +38,7 @@ static AudioServerPlugInHostRef gHost;
 static GsrRingHeader *_Atomic gHdr;
 static _Atomic Float64 gRate = 48000;           // rate presented to CoreAudio
 static _Atomic uint32_t gIoRunning;
+static _Atomic uint32_t gPresent;               // the card is there: the device is listed (it leaves the list when the card has been gone for a few seconds)
 static uint64_t gVirtHost;                      // free-running clock origin (IO thread only)
 static _Atomic uint32_t gVirtSeed = 1;
 static mach_timebase_info_data_t gTb;
@@ -103,10 +104,22 @@ static void notifyDeviceTiming(void) {
     gHost->PropertiesChanged(gHost, kObjDevice, 7, a);
 }
 
+// The device is in the list of the plug-in only while the card is there (gsrd runs and sees it). When the card goes away for more than a few seconds
+// the device disappears from CoreAudio; it comes back by itself. A short interruption (bus reset, rate change) keeps it.
+static void setPresent(uint32_t p) {
+    if (atomic_exchange(&gPresent, p) == p || !gHost) return;
+    LOG("card %s: the device %s", p ? "present" : "gone", p ? "appears" : "leaves the list");
+    AudioObjectPropertyAddress alive = { kAudioDevicePropertyDeviceIsAlive, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+    if (!p) gHost->PropertiesChanged(gHost, kObjDevice, 1, &alive);
+    AudioObjectPropertyAddress l[2] = { { kAudioObjectPropertyOwnedObjects, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain },
+                                        { kAudioPlugInPropertyDeviceList, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain } };
+    gHost->PropertiesChanged(gHost, kObjPlugIn, 2, l);
+}
+
 static void *connectThread(void *arg) {
     (void)arg;
     const char *file = getenv("GSR_RING_FILE");
-    uint64_t staleSince = 0;
+    uint64_t staleSince = 0, absentSince = 0;
     for (;;) {
         GsrRingHeader *h = hdr();
         if (h) {
@@ -147,6 +160,13 @@ static void *connectThread(void *arg) {
                 LOG("card rate is now %u: asking CoreAudio to reconfigure", r);
                 gHost->RequestDeviceConfigurationChange(gHost, kObjDevice, kChangeRate, NULL);
             }
+        }
+        {   // presence of the card
+            GsrRingHeader *c = hdr();
+            int here = c && anchorFresh(c) && atomic_load(&c->state) != GSR_STATE_DOWN;
+            if (here) { absentSince = 0; setPresent(1); }
+            else if (!absentSince) absentSince = hostNow();
+            else if ((hostNow() - absentSince) * gTb.numer / gTb.denom > 3000000000ull) setPresent(0);
         }
         usleep(250000);
     }
@@ -213,10 +233,15 @@ static OSStatus Prop(AudioObjectID o, const AudioObjectPropertyAddress *a, PMode
         case kAudioObjectPropertyClass: OUT(sizeof(AudioClassID), *(AudioClassID *)buf = kAudioPlugInClassID);
         case kAudioObjectPropertyOwner: OUT(sizeof(AudioObjectID), *(AudioObjectID *)buf = kAudioObjectUnknown);
         case kAudioObjectPropertyManufacturer: OUT(sizeof(CFStringRef), *(CFStringRef *)buf = CFSTR("GSR24M"));
-        case kAudioObjectPropertyOwnedObjects: case kAudioPlugInPropertyDeviceList: OUT(sizeof(AudioObjectID), *(AudioObjectID *)buf = kObjDevice);
+        case kAudioObjectPropertyOwnedObjects: case kAudioPlugInPropertyDeviceList: {
+            int here = atomic_load(&gPresent) != 0;
+            *outSize = here ? sizeof(AudioObjectID) : 0;
+            if (mode == P_GET) { if (bufSize < *outSize) return kAudioHardwareBadPropertySizeError; if (here) *(AudioObjectID *)buf = kObjDevice; }
+            return kAudioHardwareNoError;
+        }
         case kAudioPlugInPropertyTranslateUIDToDevice: {
             if (qSize != sizeof(CFStringRef) || !q) return kAudioHardwareBadPropertySizeError;
-            OUT(sizeof(AudioObjectID), *(AudioObjectID *)buf = CFEqual(*(CFStringRef *)q, CFSTR("GSR24M-Device")) ? kObjDevice : kAudioObjectUnknown);
+            OUT(sizeof(AudioObjectID), *(AudioObjectID *)buf = (atomic_load(&gPresent) && CFEqual(*(CFStringRef *)q, CFSTR("GSR24M-Device"))) ? kObjDevice : kAudioObjectUnknown);
         }
         }
         return kAudioHardwareUnknownPropertyError;
@@ -234,7 +259,7 @@ static OSStatus Prop(AudioObjectID o, const AudioObjectPropertyAddress *a, PMode
         case kAudioDevicePropertyTransportType: OUT(sizeof(UInt32), *(UInt32 *)buf = kAudioDeviceTransportTypeFireWire);
         case kAudioDevicePropertyRelatedDevices: OUT(sizeof(AudioObjectID), *(AudioObjectID *)buf = kObjDevice);
         case kAudioDevicePropertyClockDomain: OUT(sizeof(UInt32), *(UInt32 *)buf = 0x47535231);
-        case kAudioDevicePropertyDeviceIsAlive: OUT(sizeof(UInt32), *(UInt32 *)buf = 1);
+        case kAudioDevicePropertyDeviceIsAlive: OUT(sizeof(UInt32), *(UInt32 *)buf = atomic_load(&gPresent) ? 1 : 0);
         case kAudioDevicePropertyDeviceIsRunning: OUT(sizeof(UInt32), *(UInt32 *)buf = atomic_load(&gIoRunning) ? 1 : 0);
         case kAudioDevicePropertyDeviceCanBeDefaultDevice: OUT(sizeof(UInt32), *(UInt32 *)buf = 1);
         case kAudioDevicePropertyDeviceCanBeDefaultSystemDevice: OUT(sizeof(UInt32), *(UInt32 *)buf = 0);

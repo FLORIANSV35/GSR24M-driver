@@ -84,7 +84,7 @@ Stop: send ports and receive port stopped, ENABLE = 0, every ISOCHRONOUS = -1, c
 
 State (found, owner, rate, lock, receive locks, sources, names), events (bus reset, lock lost, overrun count), commands (set rate, set clock source, start/stop streaming for diagnostics, buffer preset, clean-up), counters (CIP errors, DBC jumps, callback gap maximum, ring fill). Channel renaming stays in `GSRCore` (app side); the plug-in reads the names from a file in Application Support or from `gsrd`.
 
-### MIDI
+### MIDI (see docs/MIDI.md for the current state)
 
 Not studied on the wire yet. Known: stream 0 carries three MIDI ports multiplexed in the 17th slot of every block (stream 1 none). Vendor notes: drops at 88.2 kHz and above when a lot is sent, so output must be paced. CoreMIDI virtual ports created by `gsrd`. Later milestone.
 
@@ -120,3 +120,16 @@ M6 Long runs (hours), sleep and wake, rate switching under a DAW, cable pull und
 ## Test set to keep (all exist as commands)
 
 `gsrloop --go --upto 24 -r RATE` at 44.1, 48, 88.2, 96 kHz (22 of 24 tones with the current console routing); 120 s hold at 96 kHz; `loadrun.sh` at 16 and 32 busy loops; `--busreset-at 6`; real cable pull; 10 consecutive starts at 96 kHz.
+
+## Hot unplug
+
+Pulling the FireWire adapter out of the Mac while gsrd was streaming panicked the Mac ("busy timeout ... IOFireWireUserClient, IOThunderboltPort"): when the whole controller disappears no bus reset reaches the daemon, so it kept the device open while the kernel waited for every user client to close (60 s watchdog). gsrd now watches the termination of the device (an IOKit interest notification: `kIOMessageServiceIsTerminated`) and ends the session at once, closing the card; it also treats a card that stops answering its register reads for about three seconds as removed.
+
+## Sleep
+
+The two panics of 2026-10-26 and 2026-10-27 were of two kinds: "busy timeout ... IOFireWireUserClient" (above) and "Sleep transition timed out after 35 seconds ... IOThunderboltFamily", when the lid was closed with the card still open. gsrd now registers for the system power messages (`IORegisterForSystemPower`): on `kIOMessageSystemWillSleep` it ends the session, puts the card back, closes the FireWire device and only then calls `IOAllowPowerChange`; it opens the card again after `kIOMessageSystemHasPoweredOn`.
+
+## The device follows the card
+
+The plug-in lists its device only while the card is there: gsrd runs, its anchor is fresh and its state is not DOWN. When that stops for more than 3 s (card unplugged or off, gsrd stopped) the device leaves the list (`PropertiesChanged` on the plug-in object for `OwnedObjects` and `DeviceList`, and on the device for `DeviceIsAlive`); it comes back by itself. A shorter interruption (bus reset, rate change) keeps the device, so the applications are not disturbed. Installing a new plug-in needs `sudo hal/install-plugin.sh`, which restarts coreaudiod (audio stops for a few seconds).
+

@@ -37,6 +37,17 @@ public struct DaemonInfo: Codable, Equatable {
     public var customIn: [String]
     public var customOut: [String]
 
+    /// The MIDI ports of the card (bytes counted by the daemon). Nil with a daemon that does not know MIDI.
+    public struct MIDIStats: Codable, Equatable {
+        public var subscribers: Int
+        public var inBytes: [UInt64]                 // bytes received, by multiplexed port number
+        public var out: [UInt64]                     // bytes sent to the three ports
+        public var inDrops: UInt64
+        public var outDrops: UInt64
+        private enum CodingKeys: String, CodingKey { case subscribers, inBytes = "in", out, inDrops, outDrops }
+    }
+    public var midi: MIDIStats?
+
     public var guid: String?
     public var vendor: String?
     public var model: String?
@@ -54,6 +65,18 @@ public struct DaemonInfo: Codable, Equatable {
     public var clockSources: [ClockSource]?
     public var tx: [Stream]?
     public var rx: [Stream]?
+
+    /// The error and lateness counters counted from a reference reading (the Reset button of the diagnostic). A counter that is lower than the
+    /// reference (the daemon restarted since) is shown as it is.
+    public func minus(_ base: DaemonInfo?) -> DaemonInfo {
+        guard let b = base else { return self }
+        func d(_ v: UInt64, _ r: UInt64) -> UInt64 { v >= r ? v - r : v }
+        var c = self
+        c.inLate = d(inLate, b.inLate); c.outLate = d(outLate, b.outLate)
+        c.cipErrors = d(cipErrors, b.cipErrors); c.dbcJumps = d(dbcJumps, b.dbcJumps)
+        c.busResets = busResets >= b.busResets ? busResets - b.busResets : busResets
+        return c
+    }
 
     public static func decode(_ json: String) -> DaemonInfo? {
         try? JSONDecoder().decode(DaemonInfo.self, from: Data(json.utf8))

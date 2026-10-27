@@ -15,10 +15,13 @@
 //                            gsrd --xpc [--rate N]         (as the LaunchDaemon: ring over the Mach service)
 
 #include "../hal/gsr_ring.h"
+#include "gsr_midi.h"
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
 #include <IOKit/IOCFPlugIn.h>
+#include <IOKit/IOMessage.h>
+#include <IOKit/pwr_mgt/IOPMLib.h>
 #include <IOKit/firewire/IOFireWireFamilyCommon.h>
 #include <IOKit/firewire/IOFireWireLib.h>
 #include <IOKit/firewire/IOFireWireLibIsoch.h>
@@ -174,6 +177,7 @@ typedef struct {
     uint32_t dbc;
 } PlayS;
 
+static uint64_t gMidiClock;               // blocks of stream 0 whose MIDI slot has been offered so far (for the 31.25 kbaud pacing)
 static CapS gC[NSTREAM];
 static PlayS gP[NSTREAM];
 static unsigned gL;                       // playback ring length in slots
@@ -249,6 +253,10 @@ static void recvSlot(CapS *c, unsigned idx) {
         if (!c->haveU0) { c->haveU0 = 1; c->U0 = tk; c->k0 = c->fw; }
     }
     if (gMeasuring) { c->fw += blocks; return; }
+    if (c->idx == 0 && c->midi) {                  // the MIDI slot is the quadlet after the PCM channels of each block
+        const uint8_t *m = q + 8 + c->pcm * 4;
+        for (uint32_t b = 0; b < blocks; b++, m += dbs * 4) gsrm_rx(m, (dbc + b) & 0xFF);
+    }
     // stream alignment: when both streams know a presentation time, sample time 0 is the earlier of the two frame 0s
     if (!c->active && gC[0].haveU0 && gC[1].haveU0) {
         double tpf = 24576000.0 / gRate;
@@ -374,6 +382,19 @@ static void onSent(void *refcon, NuDCLRef dcl) {
         buildPacket(ps, base + k + gLead, tSend, sendBus);
     }
     ps->seqNo += BATCH;
+    if (si == 0 && ps->midi && ps->pcm * 4 + 4 == ps->dbs * 4) {
+        // MIDI is written late, a few milliseconds before the DMA reads the packet, not with the audio 80 ms ahead: LEDs and motor faders
+        // answer at once. The packets just sent are seqNo-BATCH..seqNo-1; the callback itself can be up to about 2.5 ms late (measured), so
+        // skip the next 32 packets (4 ms) and take the 8 after them: a byte is never taken from the queue for a packet already on the wire.
+        unsigned gap = gsrm_gap_for_rate(gRate);
+        for (unsigned k = 0; k < BATCH; k++) {
+            uint64_t seq = ps->seqNo + 4 * BATCH + k;
+            unsigned sl = (unsigned)(seq % gL);
+            if (!gKind[sl]) continue;                                  // empty packet: no blocks
+            uint8_t *pk = ps->buf + (size_t)sl * MAX_PKT;
+            gsrm_patch(pk + 8, ps->dbs * 4, ps->pcm * 4, gBlocks, pk[3], &gMidiClock, gap);
+        }
+    }
 }
 
 // ---------- remote ports ----------
@@ -406,6 +427,48 @@ static void onBusReset(IOFireWireLibDeviceRef self, FWClientCommandID id) {
 }
 static void onBusResetDone(IOFireWireLibDeviceRef self, FWClientCommandID id) { (*self)->ClientCommandIsComplete(self, id, kIOReturnSuccess); }
 
+// The card (or the whole FireWire controller, when its adapter is pulled out) can disappear without a bus reset ever reaching this program. The kernel
+// then waits for every user client of the device to close and panics after 60 s ("busy timeout ... IOFireWireUserClient"). So the termination of the
+// device is watched, and the session ends at once (the card is closed in the main loop).
+static IONotificationPortRef gNotify;
+static io_object_t gTermNote;
+static void onServiceMessage(void *ref, io_service_t svc, natural_t type, void *arg) {
+    (void)ref; (void)svc; (void)arg;
+    if (type == kIOMessageServiceIsTerminated || type == kIOMessageServiceIsRequestingClose) {
+        if (!gBusReset) logf2("the card is being removed");
+        gBusReset = 1;
+        CFRunLoopStop(CFRunLoopGetMain());
+    }
+}
+
+// The Mac cannot go to sleep while this program holds the FireWire controller busy ("Sleep transition timed out ... IOThunderboltFamily" panic, the
+// Mac restarts). When the system announces its sleep the session is ended, the card is put back and closed, and only then is the sleep allowed.
+// On wake the card is opened again by the main loop.
+static IONotificationPortRef gPowerPort;
+static io_connect_t gPowerRoot;
+static io_object_t gPowerNotifier;
+static volatile sig_atomic_t gSleepPending, gSleeping;
+static long gSleepToken;
+static void ackSleep(void) {
+    if (!gSleepPending) return;
+    gSleepPending = 0; gSleeping = 1;
+    IOAllowPowerChange(gPowerRoot, gSleepToken);
+    logf2("card released: the system may sleep");
+}
+static void onPower(void *ref, io_service_t svc, natural_t msg, void *arg) {
+    (void)ref; (void)svc;
+    switch (msg) {
+    case kIOMessageCanSystemSleep: IOAllowPowerChange(gPowerRoot, (long)arg); break;
+    case kIOMessageSystemWillSleep:
+        gSleepToken = (long)arg; gSleepPending = 1;
+        logf2("the system is going to sleep: closing the card");
+        if (!gDev) ackSleep(); else CFRunLoopStop(CFRunLoopGetMain());          // the main loop ends the session, closes the card, then answers
+        break;
+    case kIOMessageSystemHasPoweredOn: gSleeping = 0; logf2("the system woke up"); break;
+    default: break;
+    }
+}
+
 static void releasePort(void *p) { if (p) { IUnknownVTbl **u = (IUnknownVTbl **)p; (*u)->Release(u); } }
 
 static int openCard(void) {
@@ -434,11 +497,18 @@ static int openCard(void) {
     (*gDev)->SetBusResetHandler(gDev, onBusReset);
     (*gDev)->SetBusResetDoneHandler(gDev, onBusResetDone);
     gBusReset = 0;
+    gNotify = IONotificationPortCreate(kIOMainPortDefault);
+    if (gNotify) {
+        CFRunLoopAddSource(CFRunLoopGetMain(), IONotificationPortGetRunLoopSource(gNotify), kCFRunLoopDefaultMode);
+        IOServiceAddInterestNotification(gNotify, chosen, kIOGeneralInterest, onServiceMessage, NULL, &gTermNote);
+    }
     UInt16 ln = 0; (*gDev)->GetLocalNodeID(gDev, &ln); gSid = ln & 0x3F;
     return 1;
 }
 
 static void closeCard(void) {
+    if (gTermNote) { IOObjectRelease(gTermNote); gTermNote = 0; }
+    if (gNotify) { CFRunLoopRemoveSource(CFRunLoopGetMain(), IONotificationPortGetRunLoopSource(gNotify), kCFRunLoopDefaultMode); IONotificationPortDestroy(gNotify); gNotify = NULL; }
     if (gDev) { (*gDev)->Close(gDev); (*gDev)->Release(gDev); gDev = NULL; }
     if (gSvc) { IOObjectRelease(gSvc); gSvc = 0; }
     releasePort(gPas); gPas = NULL; gOwned = 0;
@@ -670,6 +740,7 @@ static size_t buildInfoJson(char *buf, size_t cap) {
         for (int k = 0; k < GSR_MAX_CH; k++) { jesc(e, sizeof e, d ? gCustomOut[k] : gCustomIn[k]); o = jappend(buf, cap, o, "%s\"%s\"", k ? "," : "", e); }
         o = jappend(buf, cap, o, "]");
     }
+    o = gsrm_json(buf, cap, o);
     o = jappend(buf, cap, o, "}");
     return o;
 }
@@ -704,7 +775,7 @@ static void readNames(void) {
 
 // ---------- one streaming session ----------
 
-typedef enum { END_QUIT, END_RATE, END_BUSRESET, END_ERROR } EndReason;
+typedef enum { END_QUIT, END_RATE, END_BUSRESET, END_SLEEP, END_ERROR } EndReason;
 
 static void freeStreams(void) {
     for (unsigned i = 0; i < NSTREAM; i++) {
@@ -818,7 +889,7 @@ static EndReason runSession(unsigned rate, unsigned *nextRate) {
     int started = 0;
     memset(gC, 0, sizeof gC); memset(gP, 0, sizeof gP);
     gOutActive = 0; gOutWSeen = 0; gOutWChanged = 0;
-    gSyncStarted = 0; gHavePres = 0; gRxCnt = 0; gRxHave = 0; gMeasuring = 0; gPreEnabled = 0; gOutCal = 0; gD = 0; dllInit = 0; gMaxGap = 0; gLastCb = 0;
+    gsrm_reset(); gMidiClock = 0; gSyncStarted = 0; gHavePres = 0; gRxCnt = 0; gRxHave = 0; gMeasuring = 0; gPreEnabled = 0; gOutCal = 0; gD = 0; dllInit = 0; gMaxGap = 0; gLastCb = 0;
     gRate = rate; gBlocks = rate <= 48000 ? 8 : 16;
     gLeadTicks = rate >= 88200 ? 4500.0 : 12800.0;
     atomic_store(&H->state, GSR_STATE_IDLE);
@@ -908,12 +979,13 @@ static EndReason runSession(unsigned rate, unsigned *nextRate) {
     // 4. run
     {
         CFAbsoluteTime t0 = CFAbsoluteTimeGetCurrent(), lastStat = t0, lastLog = t0;
-        UInt32 lastExt = 0xDEADBEEF; int calibrated = 0, unlockedPolls = 0;
+        UInt32 lastExt = 0xDEADBEEF; int calibrated = 0, unlockedPolls = 0, silent = 0;
         reason = END_ERROR;
         for (;;) {
             CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
             CFAbsoluteTime now = CFAbsoluteTimeGetCurrent();
             if (gQuit) { reason = END_QUIT; break; }
+            if (gSleepPending) { reason = END_SLEEP; break; }
             if (gRunSeconds > 0 && now - t0 > gRunSeconds) { gQuit = 1; reason = END_QUIT; break; }
             if (gBusReset) { reason = END_BUSRESET; break; }
             { UInt32 g = 0; UInt16 nd; (*gDev)->GetGenerationAndNodeID(gDev, &g, &nd); if (g != gGenAtStart) { gBusReset = 1; reason = END_BUSRESET; break; } }
@@ -941,7 +1013,9 @@ static EndReason runSession(unsigned rate, unsigned *nextRate) {
             if (now - lastStat >= 1.0) {
                 lastStat = now;
                 UInt32 ext = 0;
-                if (!rq(gGlobalOff + 0x58, &ext) && ext != lastExt) { logf2("EXTENDED_STATUS 0x%08x", ext); lastExt = ext; }
+                if (rq(gGlobalOff + 0x58, &ext)) {                                       // the card does not answer: after a few seconds treat it as unplugged
+                    if (++silent >= 3) { logf2("the card stopped answering: treated as removed"); gBusReset = 1; reason = END_BUSRESET; break; }
+                } else { silent = 0; if (ext != lastExt) { logf2("EXTENDED_STATUS 0x%08x", ext); lastExt = ext; } }
                 refreshLive();
                 { pthread_mutex_lock(&gInfoLock); int lk = gInfo.locked; pthread_mutex_unlock(&gInfoLock);
                   unlockedPolls = lk ? 0 : unlockedPolls + 1;
@@ -997,6 +1071,7 @@ static void startXpc(void) {
     xpc_connection_set_event_handler(l, ^(xpc_object_t peer) {
         if (xpc_get_type(peer) != XPC_TYPE_CONNECTION) return;
         xpc_connection_set_event_handler(peer, ^(xpc_object_t msg) {
+            if (xpc_get_type(msg) == XPC_TYPE_ERROR) { gsrm_peer_gone(peer); return; }
             if (xpc_get_type(msg) != XPC_TYPE_DICTIONARY) return;
             xpc_object_t reply = xpc_dictionary_create_reply(msg);
             if (!reply) return;
@@ -1047,6 +1122,7 @@ static void startXpc(void) {
                     logf2("channel names updated by the app");
                 }
                 xpc_dictionary_set_bool(reply, "ok", ok);
+            } else if (gsrm_xpc(op, msg, reply, peer)) {
             } else xpc_dictionary_set_bool(reply, "ok", false);
             xpc_connection_send_message(peer, reply);
         });
@@ -1077,13 +1153,18 @@ int main(int argc, char **argv) {
     mach_timebase_info(&gTb); gHostHz = 1e9 * gTb.denom / gTb.numer;
     gStartedAt = CFAbsoluteTimeGetCurrent();
     setupRing();
+    gsrm_init();
     loadNames(); applyNames();
     signal(SIGINT, onSignal); signal(SIGTERM, onSignal);
     if (gUseXpc) startXpc();
     makeRealtime();
     unsigned want = gInitialRate;
     int cardEverOpened = 0;
+    gPowerRoot = IORegisterForSystemPower(NULL, &gPowerPort, onPower, &gPowerNotifier);
+    if (gPowerRoot) CFRunLoopAddSource(CFRunLoopGetMain(), IONotificationPortGetRunLoopSource(gPowerPort), kCFRunLoopCommonModes);
     while (!gQuit) {
+        ackSleep();
+        if (gSleeping) { CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.5, false); continue; }       // asleep: the card stays closed until the system wakes
         atomic_store(&H->state, GSR_STATE_DOWN);
         pthread_mutex_lock(&gInfoLock); gInfo.haveCard = 0; pthread_mutex_unlock(&gInfoLock);
         if (!openCard()) { CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0, false); continue; }
@@ -1099,10 +1180,10 @@ int main(int argc, char **argv) {
         if (!takeOwner()) { closeCard(); CFRunLoopRunInMode(kCFRunLoopDefaultMode, 3.0, false); continue; }
         if (!want) { unsigned code = (cs >> 8) & 0xFF; want = code < 7 ? kRateTbl[code] : 48000; if (want != 44100 && want != 48000 && want != 88200 && want != 96000) want = 48000; }
         int errors = 0;
-        while (!gQuit && !gBusReset) {
+        while (!gQuit && !gBusReset && !gSleepPending) {
             unsigned next = want;
             EndReason r = runSession(want, &next);
-            if (r == END_QUIT) break;
+            if (r == END_QUIT || r == END_SLEEP) break;
             if (r == END_BUSRESET) { logf2("bus reset"); gBusResets++; snprintf(gLastError, sizeof gLastError, "FireWire bus reset"); break; }
             if (r == END_RATE) { want = next; errors = 0; continue; }
             if (++errors >= 4) { logf2("giving up on this card for now"); break; }
@@ -1114,6 +1195,7 @@ int main(int argc, char **argv) {
             releaseOwner();
         }
         closeCard();
+        ackSleep();
         if (gBusReset) { logf2("waiting for the card to come back"); CFRunLoopRunInMode(kCFRunLoopDefaultMode, 2.0, false); }
         gBusReset = 0;
     }

@@ -3,12 +3,20 @@
 LOG=/var/log/gsr24m-install.log
 {
   echo "postinstall $(date)"
-  chown root:wheel /usr/local/libexec/gsrd /usr/local/libexec/gsr24m-uninstall.sh
-  chmod 755 /usr/local/libexec/gsrd /usr/local/libexec/gsr24m-uninstall.sh
+  chown root:wheel /usr/local/libexec/gsrd /usr/local/libexec/gsrmidiagent /usr/local/libexec/gsr24m-uninstall.sh
+  chmod 755 /usr/local/libexec/gsrd /usr/local/libexec/gsrmidiagent /usr/local/libexec/gsr24m-uninstall.sh
+  chown root:wheel /Library/LaunchAgents/com.gsr24m.midiagent.plist
+  chmod 644 /Library/LaunchAgents/com.gsr24m.midiagent.plist
   chown root:wheel /Library/LaunchDaemons/com.gsr24m.gsrd.plist
   chmod 644 /Library/LaunchDaemons/com.gsr24m.gsrd.plist
   chown -R root:wheel /Library/Audio/Plug-Ins/HAL/GSR24M.driver
   launchctl bootstrap system /Library/LaunchDaemons/com.gsr24m.gsrd.plist 2>&1 || true
+  # the MIDI agent runs in the session of the user who is logged in at the screen
+  CUID=$(stat -f %u /dev/console)
+  if [ -n "$CUID" ] && [ "$CUID" != "0" ]; then
+    launchctl bootout gui/$CUID/com.gsr24m.midiagent 2>&1 || true
+    launchctl bootstrap gui/$CUID /Library/LaunchAgents/com.gsr24m.midiagent.plist 2>&1 || true
+  fi
   sleep 1
   killall coreaudiod 2>&1 || true
   echo "done"

@@ -55,6 +55,9 @@ final class AppModel: ObservableObject {
     @Published var demo = false { didSet { demo ? startDemo() : refresh() } }
     /// Latest answer of the daemon `gsrd`; nil when it is not running (the app then falls back to the read-only dicedump scan).
     @Published var live: DaemonInfo?
+    let load = LoadMonitor()
+    /// Reading of the daemon's counters when the user pressed Reset in the diagnostic.
+    @Published var counterBase: DaemonInfo?
     @Published var daemonNote = ""
     private let client = DaemonClient()
     private var timer: Timer?
@@ -132,6 +135,7 @@ final class AppModel: ObservableObject {
                 guard !self.demo else { return }
                 let wasLive = self.live != nil
                 self.live = info
+                self.load.update(info)
                 guard let i = info else {
                     if wasLive && !AppModel.daemonInstalled { self.refresh() }
                     return
@@ -145,9 +149,15 @@ final class AppModel: ObservableObject {
                     if !self.devices.isEmpty { self.devices = [] }
                     self.pushedNamesFor = nil
                 }
-                self.log = AppModel.daemonLog(i)
+                self.log = AppModel.daemonLog(i.minus(self.counterBase))
             }
         }
+    }
+
+    /// Counts the packet errors, late frames and bus resets again from now.
+    func resetCounters() {
+        counterBase = live
+        if let i = live { log = AppModel.daemonLog(i.minus(counterBase)) }
     }
 
     static func daemonLog(_ i: DaemonInfo) -> [String] {

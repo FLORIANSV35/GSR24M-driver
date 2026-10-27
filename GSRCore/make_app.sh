@@ -7,6 +7,9 @@ swift build -c release --product GSRApp
 APP=build/GSR24M.app
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/GSRApp "$APP/Contents/MacOS/GSRApp"
+rm -rf build/AppIcon.iconset
+swift make_icon.swift build/AppIcon.iconset
+iconutil -c icns build/AppIcon.iconset -o "$APP/Contents/Resources/AppIcon.icns"
 (cd ../dicedump && clang -O1 -Wall -o dicedump dicedump.c -framework IOKit -framework CoreFoundation)
 cp ../dicedump/dicedump "$APP/Contents/Resources/dicedump"
 cat > "$APP/Contents/Info.plist" <<PL
@@ -14,6 +17,7 @@ cat > "$APP/Contents/Info.plist" <<PL
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>GSRApp</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleIdentifier</key><string>com.gsr24m.app</string>
 <key>CFBundleName</key><string>GSR24M</string>
 <key>CFBundlePackageType</key><string>APPL</string>
@@ -21,6 +25,7 @@ cat > "$APP/Contents/Info.plist" <<PL
 <key>CFBundleVersion</key><string>$VERSION</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>NSHighResolutionCapable</key><true/>
+<key>NSMicrophoneUsageDescription</key><string>The EQ recall tool records the console returning through the GS-R24M card.</string>
 </dict></plist>
 PL
 codesign --force --sign - "$APP"
