@@ -88,7 +88,7 @@ public enum EQGuide {
     }
 
     /// Gap (rms, dB) below which a knob is not worth suggesting.
-    public static let worthTouching = 0.15
+    public static let worthTouching = 0.03
 
     /// Joint (ridge) solution of the eight knobs for the gap between target and live. The sensitivities only need the right shapes: the
     /// advice is followed knob by knob with the live curve as feedback, so a wrong size costs a move, not the result. In simulation, from the
@@ -131,6 +131,12 @@ public enum EQGuide {
             x[r] = sum / m[r][r]
         }
         return x
+    }
+
+    /// Arrows to light for a knob that still has to go `amount` (its unit, see `tolerance`): 0 = in place, 1 = a little, 3 = a long way.
+    public static func arrows(_ amount: Double, tolerance t: Double) -> Int {
+        let d = abs(amount)
+        return d <= t ? 0 : d <= 3 * t ? 1 : d <= 8 * t ? 2 : 3
     }
 
     /// Distance to cover below which the knob counts as in place.

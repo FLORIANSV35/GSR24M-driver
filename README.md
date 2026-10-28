@@ -19,7 +19,7 @@ Uninstall: `sudo /usr/local/libexec/gsr24m-uninstall.sh` (`--purge` also deletes
 - The CoreAudio device is listed only while the card is there: it leaves the list when the card is unplugged or switched off and comes back by itself. The daemon lets go of the card before the Mac sleeps and when the card is removed.
 - **Monitor** tab: load of the audio chain (FireWire bus, send gap, daemon CPU, late frames, MIDI links), red lights and a journal of faults.
 - **MIDI** (console MIDI section, console mode 3 with ADD MODE on): *Legacy* mode passes the three MIDI ports of the card to "GS-R24M MIDI 1 to 3"; *Pro Tools* mode turns the console into three HUI devices ("GS-R24M HUI 1 to 3": faders both ways, SEL lights, transport, touch, jogwheel, keypad) and lets you choose what the buttons do. SEL BANK 1 is the plain SEL, SEL BANK 2 (shift) can be solo, mute or record ready, and SEL REV swaps them. Details: `docs/MIDI.md`. The console lights of PLAY, STOP and REC cannot be driven.
-- **Recall** tab: measures the EQ of a channel through the card and guides the knobs back to a stored setting (`docs/RECALL.md`).
+- **Recall** tab: measures the EQ of the channels through the card (all at once, about 5 s), shows the strip as on the console and guides the knobs back to a stored setting; the rotaries of the console turn the knobs of the strip (`docs/RECALL.md`).
 - Measured round trip inside the console: 2.2 ms (48 kHz). Output latency seen by software: playback lead (40 to 300 ms depending on the mode) + 3 ms.
 
 ## Tested on

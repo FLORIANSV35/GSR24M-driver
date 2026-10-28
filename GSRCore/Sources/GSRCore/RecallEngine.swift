@@ -1,20 +1,20 @@
 import Foundation
 import CoreAudio
 
-/// Plays periodic pink noise into one return channel of the GS-R24M device and records the send of the same channel.
+/// Plays periodic pink noise into one or several return channels of the GS-R24M device (a different noise on each) and records the send of the same channels.
 /// It uses the normal CoreAudio device (gsrd and the plug-in must be running, no other application on the device).
 /// The noise has a fade in and a fade out and is never louder than -20 dBFS rms.
 public final class RecallEngine {
     public enum EngineError: Error, Equatable { case noDevice, cannotStart(Int32) }
 
     private struct State {
-        var noise: UnsafeMutablePointer<Float>
+        var noise: UnsafeMutablePointer<Float>      // count * noiseLength, one noise per channel
         var noiseLength: Int
-        var ring: UnsafeMutablePointer<Float>
+        var ring: UnsafeMutablePointer<Float>       // count * ringCapacity
         var ringCapacity: Int
         var writeIndex: Int
-        var channelOut: Int
-        var channelIn: Int
+        var count: Int
+        var channels: UnsafeMutablePointer<Int>     // 1-based, one per noise
         var amp: Float
         var frames: Int
         var stopFrame: Int      // -1 while playing
@@ -36,12 +36,13 @@ public final class RecallEngine {
         let ringCap = n * 6
         let ring = UnsafeMutablePointer<Float>.allocate(capacity: ringCap); ring.initialize(repeating: 0, count: ringCap)
         let noise = UnsafeMutablePointer<Float>.allocate(capacity: n); noise.initialize(repeating: 0, count: n)
-        state.initialize(to: State(noise: noise, noiseLength: n, ring: ring, ringCapacity: ringCap, writeIndex: 0, channelOut: 1, channelIn: 1, amp: 0, frames: 0, stopFrame: -1, fade: 24000))
+        let chans = UnsafeMutablePointer<Int>.allocate(capacity: 1); chans.initialize(to: 1)
+        state.initialize(to: State(noise: noise, noiseLength: n, ring: ring, ringCapacity: ringCap, writeIndex: 0, count: 1, channels: chans, amp: 0, frames: 0, stopFrame: -1, fade: 24000))
     }
 
     deinit {
         stopNow()
-        state.pointee.noise.deallocate(); state.pointee.ring.deallocate(); state.deallocate()
+        state.pointee.noise.deallocate(); state.pointee.ring.deallocate(); state.pointee.channels.deallocate(); state.deallocate()
     }
 
     public static func findDevice() -> AudioDeviceID? {
@@ -62,8 +63,14 @@ public final class RecallEngine {
     public static var deviceAvailable: Bool { findDevice() != nil }
 
     /// Starts the noise on `channel` (1 to 24). `levelDB` is the rms level in dBFS, capped at -20.
-    public func start(channel: Int, levelDB: Double = -36) throws {
+    public func start(channel: Int, levelDB: Double = -36) throws { try start(channels: [channel], levelDB: levelDB) }
+
+    /// Starts one noise per channel (1 to 32, each with the seed of its number). `levelDB` is the rms level of each, lowered
+    /// so that the sum of all of them never goes above -20 dBFS.
+    public func start(channels list: [Int], levelDB: Double = -36) throws {
         stopNow()
+        let list = Array(Set(list.map { max(1, min(32, $0)) })).sorted()
+        guard !list.isEmpty else { throw EngineError.noDevice }
         guard let dev = Self.findDevice() else { throw EngineError.noDevice }
         device = dev
         var rateAddr = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyNominalSampleRate, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
@@ -75,12 +82,19 @@ public final class RecallEngine {
         AudioObjectSetPropertyData(dev, &bufAddr, 0, nil, UInt32(MemoryLayout<UInt32>.size), &bf)
 
         let n = periodLength
-        let pink = EQMeasure.pinkPeriod(seed: UInt64(channel), rate: rate, length: n)
-        for i in 0..<n { state.pointee.noise[i] = pink[i] }
-        for i in 0..<state.pointee.ringCapacity { state.pointee.ring[i] = 0 }
+        let cap = state.pointee.ringCapacity
+        state.pointee.noise.deallocate(); state.pointee.ring.deallocate(); state.pointee.channels.deallocate()
+        state.pointee.noise = .allocate(capacity: n * list.count)
+        state.pointee.ring = .allocate(capacity: cap * list.count); state.pointee.ring.initialize(repeating: 0, count: cap * list.count)
+        state.pointee.channels = .allocate(capacity: list.count)
+        for (k, channel) in list.enumerated() {
+            let pink = EQMeasure.pinkPeriod(seed: UInt64(channel), rate: rate, length: n)
+            for i in 0..<n { state.pointee.noise[k * n + i] = pink[i] }
+            state.pointee.channels[k] = channel
+        }
+        state.pointee.count = list.count
         state.pointee.writeIndex = 0; state.pointee.frames = 0; state.pointee.stopFrame = -1
-        state.pointee.channelOut = max(1, min(32, channel)); state.pointee.channelIn = state.pointee.channelOut
-        state.pointee.amp = Float(pow(10.0, min(levelDB, -20) / 20))
+        state.pointee.amp = Float(pow(10.0, min(levelDB, -20 - 10 * log10(Double(list.count))) / 20))
         state.pointee.fade = Int(0.5 * rate)
 
         let st = state
@@ -92,9 +106,12 @@ public final class RecallEngine {
             var framesIn = 0
             if inList.count > 0, let p = inList[0].mData?.assumingMemoryBound(to: Float.self) {
                 framesIn = Int(inList[0].mDataByteSize) / (ch * MemoryLayout<Float>.size)
-                let c = s.pointee.channelIn - 1
-                for i in 0..<framesIn {
-                    s.pointee.ring[(s.pointee.writeIndex + i) % s.pointee.ringCapacity] = p[i * ch + c]
+                let cap = s.pointee.ringCapacity
+                for k in 0..<s.pointee.count {
+                    let c = s.pointee.channels[k] - 1
+                    for i in 0..<framesIn {
+                        s.pointee.ring[k * cap + (s.pointee.writeIndex + i) % cap] = p[i * ch + c]
+                    }
                 }
                 s.pointee.writeIndex += framesIn
             }
@@ -104,7 +121,6 @@ public final class RecallEngine {
                 let frames = Int(outList[0].mDataByteSize) / (ch * MemoryLayout<Float>.size)
                 memset(o, 0, Int(outList[0].mDataByteSize))
                 let base = Int(outTime.pointee.mSampleTime)
-                let c = s.pointee.channelOut - 1
                 for i in 0..<frames {
                     let f = s.pointee.frames
                     var env: Float = 1
@@ -113,7 +129,7 @@ public final class RecallEngine {
                     s.pointee.frames += 1
                     if env <= 0 { continue }
                     let idx = ((base + i) % n + n) % n
-                    o[i * ch + c] = s.pointee.amp * env * s.pointee.noise[idx]
+                    for k in 0..<s.pointee.count { o[i * ch + s.pointee.channels[k] - 1] = s.pointee.amp * env * s.pointee.noise[k * n + idx] }
                 }
             }
         }
@@ -140,11 +156,12 @@ public final class RecallEngine {
     /// Frames recorded so far.
     public var recordedFrames: Int { state.pointee.writeIndex }
 
-    /// The last `frames` samples of the channel's send, ending 4096 samples before the newest one (away from the writer).
-    public func recent(frames: Int) -> [Float]? {
+    /// The last `frames` samples of the send of `channel` (the first one started when nil), ending 4096 samples before the newest one (away from the writer).
+    public func recent(frames: Int, channel: Int? = nil) -> [Float]? {
         let s = state.pointee
         let end = s.writeIndex - 4096
-        guard frames <= s.ringCapacity - 8192, end - frames >= 0 else { return nil }
-        return (0..<frames).map { s.ring[(end - frames + $0) % s.ringCapacity] }
+        let k = channel == nil ? 0 : (0..<s.count).first { s.channels[$0] == channel! }
+        guard let k, frames <= s.ringCapacity - 8192, end - frames >= 0 else { return nil }
+        return (0..<frames).map { s.ring[k * s.ringCapacity + (end - frames + $0) % s.ringCapacity] }
     }
 }

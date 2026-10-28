@@ -121,6 +121,10 @@ public final class MIDIAgent {
                         self.host.sendToHUI(device: device, bytes: Array(UnsafeBufferPointer(start: p.assumingMemoryBound(to: UInt8.self), count: n)))
                         xpc_dictionary_set_bool(reply, "ok", true)
                     } else { xpc_dictionary_set_bool(reply, "ok", false) }
+                case "faderSet":
+                    let n = Int(xpc_dictionary_get_uint64(msg, "channel")), v = Int(xpc_dictionary_get_uint64(msg, "value"))
+                    self.host.moveFader(channel: n, to: v, now: ProcessInfo.processInfo.systemUptime)
+                    xpc_dictionary_set_bool(reply, "ok", (1...24).contains(n))
                 case "reload":
                     self.settingsStamp = nil
                     xpc_dictionary_set_bool(reply, "ok", true)

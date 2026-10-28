@@ -382,6 +382,18 @@ private final class FakeVirtual: VirtualMIDI {
         _ = h
     }
 
+    @Test func theMotorisedFaderIsMovedByTheControllerOfItsChannel() {
+        let (h, c, _) = make(.protools)
+        h.moveFader(channel: 5, to: 90, now: 0)
+        #expect(c.sent.count == 1 && c.sent[0].0 == 0 && c.sent[0].1 == bytes("B0 05 5A"))
+        h.moveFader(channel: 30, to: 90, now: 1)                               // there is no channel 30
+        h.moveFader(channel: 24, to: 500, now: 2)                              // positions stay inside 0 to 127
+        #expect(c.sent.count == 2 && c.sent[1].1 == bytes("B0 18 7F"))
+        let (l, c2, _) = make(.legacy)
+        l.moveFader(channel: 1, to: 0, now: 0)
+        #expect(c2.sent.count == 1 && c2.sent[0].1 == bytes("B0 01 00"))
+    }
+
     @Test func protoolsTranslatesAcrossSplitBuffers() {
         let (h, c, v) = make(.protools)
         c.receive(0, bytes("B0 03"))                                        // a message arrives in two pieces

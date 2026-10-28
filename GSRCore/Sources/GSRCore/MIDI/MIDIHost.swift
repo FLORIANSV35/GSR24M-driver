@@ -115,6 +115,15 @@ public final class MIDIHost {
         sendToConsole(shaper.drain(now: now))
     }
 
+    /// Moves the motorised fader of a channel (1 to 24) to a position (0 to 127): the console takes the controller of the channel number as the position
+    /// to go to when READ is on. Goes through the rate limit in Pro Tools mode.
+    public func moveFader(channel n: Int, to value: Int, now: TimeInterval) {
+        guard (1...24).contains(n) else { return }
+        let m: [UInt8] = [0xB0 | UInt8(settings.consoleChannel & 0x0F), UInt8(n), UInt8(min(127, max(0, value)))]
+        if settings.mode == .protools { sendToConsole(shaper.push(m, now: now)) }
+        else { card.send(port: settings.consolePort, bytes: m); onTraffic?("card \(settings.consolePort + 1) out", m) }
+    }
+
     private func sendToConsole(_ messages: [[UInt8]]) {
         for m in messages { card.send(port: settings.consolePort, bytes: m); onTraffic?("console out", m) }
     }

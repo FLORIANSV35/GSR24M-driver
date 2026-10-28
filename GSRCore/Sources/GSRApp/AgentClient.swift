@@ -57,6 +57,14 @@ final class AgentClient {
         let r = xpc_connection_send_message_with_reply_sync(conn(), m)
         return xpc_get_type(r) == XPC_TYPE_DICTIONARY && xpc_dictionary_get_bool(r, "ok")
     }
+    /// Moves the motorised fader of a channel to a MIDI position (the console must have READ on).
+    func setFader(channel: Int, value: Int) -> Bool {
+        let m = xpc_dictionary_create(nil, nil, 0)
+        xpc_dictionary_set_string(m, "op", "faderSet")
+        xpc_dictionary_set_uint64(m, "channel", UInt64(channel)); xpc_dictionary_set_uint64(m, "value", UInt64(value))
+        let r = xpc_connection_send_message_with_reply_sync(conn(), m)
+        return xpc_get_type(r) == XPC_TYPE_DICTIONARY && xpc_dictionary_get_bool(r, "ok")
+    }
     func askAccessibility() { _ = call("askAccessibility") }
 
     /// Opens a second connection that receives the traffic. `onTraffic(direction, bytes)` is called on a private queue.

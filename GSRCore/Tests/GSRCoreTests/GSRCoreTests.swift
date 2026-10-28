@@ -228,6 +228,14 @@ func syntheticReport(vendor: String, specID: String, guid: String) -> String {
         #expect(withMIDI.midi?.inBytes[0] == 10 && withMIDI.midi?.outDrops == 2 && i.midi == nil)
     }
 
+    @Test func knobArrowsGrowWithTheDistance() {
+        let g = EQGuide.tolerance(.hf)                                                // 0.3 dB
+        #expect(EQGuide.arrows(0.2, tolerance: g) == 0 && EQGuide.arrows(-0.3, tolerance: g) == 0)       // in place: green circle
+        #expect(EQGuide.arrows(0.5, tolerance: g) == 1 && EQGuide.arrows(-0.85, tolerance: g) == 1)       // a little
+        #expect(EQGuide.arrows(1.5, tolerance: g) == 2 && EQGuide.arrows(2.3, tolerance: g) == 2)
+        #expect(EQGuide.arrows(2.5, tolerance: g) == 3 && EQGuide.arrows(-6, tolerance: g) == 3)         // a long way
+    }
+
     @Test func noCardStillDecodes() throws {
         let j = "{\"version\":1,\"state\":0,\"generation\":1,\"haveCard\":false,\"owned\":false,\"sessions\":0,\"busResets\":0,\"uptime\":3,\"leadMs\":80,\"ioClients\":0,\"inLate\":0,\"outLate\":0,\"inWritten\":0,\"cipErrors\":0,\"dbcJumps\":0,\"maxGapMs\":0,\"error\":\"card busy\",\"customIn\":[],\"customOut\":[]}"
         let i = try #require(DaemonInfo.decode(j))
@@ -590,5 +598,40 @@ func syntheticReport(vendor: String, specID: String, guid: String) -> String {
         var off = base; off.lmf.freq = 230; off.lmf.gain = 5.5; off.lmf.q = 1.0     // linearisation point clearly off
         let m = try #require(EQGuide.movedKnob(from: curve(base), to: curve(moved), around: off))
         #expect(m.knob == .lmfFreq && m.amount > 0)
+    }
+}
+
+@Suite struct RecallEngineMultiTests {
+    @Test func channelsKeepTheirOwnNoise() {
+        // distinct seeds give noises that do not resemble each other, so one send never reads as another channel
+        let a = EQMeasure.pinkPeriod(seed: 3, rate: 48000), b = EQMeasure.pinkPeriod(seed: 4, rate: 48000)
+        let dot = zip(a, b).reduce(0.0) { $0 + Double($1.0 * $1.1) } / Double(a.count)
+        #expect(abs(dot) < 0.15)
+    }
+
+    @Test func twoPeriodsAreEnoughToRecoverTheBump() throws {
+        let (rec, ref) = EQMeasureTests.simulate(gainDB: 6, periods: 2)
+        let c = try #require(EQMeasure.curve(recorded: rec, reference: ref, rate: 48000, maxPeriods: 2))
+        let i = c.freq.indices.min { abs(c.freq[$0] - 1000) < abs(c.freq[$1] - 1000) }!
+        #expect(abs(c.db[i] - 6) < 0.3)
+    }
+}
+
+@Suite struct RecallEngineMultiHardwareTests {
+    /// Plays noise on channels 1 to 24 at once and prints what each send returns. GSR_HW_MULTI=1, monitors off, A+B on the channels to measure.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["GSR_HW_MULTI"] == "1" && RecallEngine.deviceAvailable))
+    func printsEveryChannel() async throws {
+        let e = RecallEngine()
+        try e.start(channels: Array(1...24))
+        try await Task.sleep(nanoseconds: 5_000_000_000)
+        let frames = e.recordedFrames
+        print("MULTI recorded frames \(frames)")
+        for ch in 1...24 {
+            guard let rec = e.recent(frames: EQMeasure.period * 2, channel: ch) else { print("MULTI ch\(ch): no recording"); continue }
+            let rms = (rec.reduce(0) { $0 + Double($1 * $1) } / Double(rec.count)).squareRoot()
+            let c = EQMeasure.curve(recorded: rec, reference: EQMeasure.pinkPeriod(seed: UInt64(ch), rate: e.rate), rate: e.rate, maxPeriods: 2)
+            print(String(format: "MULTI ch%d: rms %.1f dBFS, curve %@", ch, 20 * log10(rms + 1e-12), c.map { String(format: "%.1f..%.1f dB", $0.db.min()!, $0.db.max()!) } ?? "nil"))
+        }
+        e.stop()
     }
 }

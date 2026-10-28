@@ -27,6 +27,9 @@ struct GSRApp: App {
     @StateObject private var midi = MIDIModel()
     init() {
         SingleInstance.enforce()
+        if let i = CommandLine.arguments.firstIndex(of: "--render-strip"), i + 1 < CommandLine.arguments.count {
+            StripPreview.render(to: CommandLine.arguments[i + 1]); exit(0)
+        }
         if let i = CommandLine.arguments.firstIndex(of: "--render-midi"), i + 1 < CommandLine.arguments.count {
             MIDIPreview.render(to: CommandLine.arguments[i + 1]); exit(0)
         }

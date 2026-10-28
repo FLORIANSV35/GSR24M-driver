@@ -153,9 +153,20 @@ public struct EQCapture: Codable, Equatable, Identifiable {
     public var date: Date
     public var rate: Double
     public var channels: [String: EQCurve]       // key: channel number 1...24
+    public var manual: [String: ManualEQ] = [:]  // EQ knob positions typed in by hand, same keys
+    public var strips: [String: StripSheet] = [:] // the other settings of the channel typed in by hand, same keys
 
-    public init(name: String, date: Date = Date(), rate: Double, channels: [String: EQCurve] = [:]) {
-        self.name = name; self.date = date; self.rate = rate; self.channels = channels
+    public init(name: String, date: Date = Date(), rate: Double, channels: [String: EQCurve] = [:], manual: [String: ManualEQ] = [:], strips: [String: StripSheet] = [:]) {
+        self.name = name; self.date = date; self.rate = rate; self.channels = channels; self.manual = manual; self.strips = strips
+    }
+
+    private enum CodingKeys: String, CodingKey { case name, date, rate, channels, manual, strips }
+    public init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name); date = try c.decode(Date.self, forKey: .date)
+        rate = try c.decode(Double.self, forKey: .rate); channels = try c.decode([String: EQCurve].self, forKey: .channels)
+        manual = try c.decodeIfPresent([String: ManualEQ].self, forKey: .manual) ?? [:]       // captures made before the values could be typed
+        strips = try c.decodeIfPresent([String: StripSheet].self, forKey: .strips) ?? [:]
     }
 
     public static var directory: URL {
