@@ -9,6 +9,7 @@ AP8349_1Module_UG_GS-R24FireWire-1.pdf
 *.bmtp
 docs/GSR24M-chaine-du-signal.pdf
 re/*.decompiled.c
+re/console-fw/
 ASFireWire/
 ISSUE_DRAFT.md
 

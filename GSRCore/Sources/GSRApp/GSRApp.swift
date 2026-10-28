@@ -51,6 +51,8 @@ struct ContentView: View {
     @EnvironmentObject var model: AppModel
     @EnvironmentObject var updates: UpdateChecker
     @State private var gTab = GlobalTab.monitor
+    @State private var restarting: Services.Piece?
+    @State private var restartMessage: String?
     @State private var dTab = CommandLine.arguments.contains("--recall") ? DeviceTab.recall : CommandLine.arguments.contains("--midi") ? DeviceTab.midi : DeviceTab.general
     @State private var importing = false
     @AppStorage("opMode") private var opMode = "Normal Mode"
@@ -248,6 +250,24 @@ struct ContentView: View {
             infoRow("macOS", ProcessInfo.processInfo.operatingSystemVersionString)
             infoRow("FireWire controller (OHCI)", "not read in this version")
             infoRow("Driver", model.viaDaemon ? "gsrd daemon + GS-R24M audio plug-in" : "none: read-only through IOFireWireLib")
+            Divider()
+            Text("Restart").font(.headline).foregroundStyle(.white)
+            ForEach(Services.Piece.allCases, id: \.self) { piece in
+                HStack(spacing: 10) {
+                    Button(piece.rawValue) { restartPiece(piece) }.frame(width: 130).disabled(restarting != nil)
+                    Text(restarting == piece ? "restarting…" : piece.detail).font(.caption).foregroundStyle(.white.opacity(0.65))
+                }
+            }
+            if let m = restartMessage { Text(m).font(.callout).foregroundStyle(.white) }
+        }
+    }
+
+    private func restartPiece(_ piece: Services.Piece) {
+        restarting = piece; restartMessage = nil
+        Services.restart(piece) { error in
+            restarting = nil
+            restartMessage = error.map { "\(piece.rawValue): \($0)" } ?? "\(piece.rawValue) restarted."
+            model.refresh()
         }
     }
 

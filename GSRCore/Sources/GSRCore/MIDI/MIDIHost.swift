@@ -32,6 +32,12 @@ public struct CustomCode: Codable, Equatable {
     public init(pattern: ConsoleMap.Pattern, control: ConsoleControl, layer: Layer?) { self.pattern = pattern; self.control = control; self.layer = layer }
 }
 
+/// The console reached through a MIDI interface of the Mac (names of its input and output) instead of the card's MIDI ports.
+public struct ExternalRoute: Codable, Equatable {
+    public var input: String, output: String
+    public init(input: String = "", output: String = "") { self.input = input; self.output = output }
+}
+
 public struct MIDISettings: Codable, Equatable {
     public var mode: MIDIMode = .legacy
     public var consolePort = 0                        // card port the console is on (to be confirmed on the real card)
@@ -39,6 +45,7 @@ public struct MIDISettings: Codable, Equatable {
     public var protools = ProToolsConfig.standard
     public var customCodes: [CustomCode] = []
     public var userSwitches: [UserSwitch] = []        // HUI switches the user found with the explorer and named
+    public var externalRoute: ExternalRoute?          // nil: through the card (optional, so that a settings file from before still reads)
     public init() {}
 
     /// The console's codes: the documented ones, then what was learned (which wins, and replaces the codes the control had).

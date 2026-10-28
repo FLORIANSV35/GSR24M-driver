@@ -6,7 +6,7 @@ What was measured on the real card is in `re/NOTES.md`; this file is the design 
 
 ## Project rules
 
-- Never modify the card's firmware. No firmware upload code in `gsrd` or the app. The vendor firmware package in `AH DOWNLOAD` is study material only.
+- Nothing is sent into the console or the card without the owner's say-so: no firmware upload code in `gsrd` or the app unless the owner asks for it. The vendor firmware package in `AH DOWNLOAD` is study material and is never published.
 - `dicedump` is read-only and stays read-only.
 - Runtime registers (OWNER, clock select, enable, isochronous channel and speed, SEQ_START) are written only by `gsrd`, as the vendor driver does; they are volatile and reset when the card is power-cycled. Every register written is put back when streaming stops. After a bus reset the card is assumed dirty and cleaned before use (see below).
 - The nickname is read-only in our software unless the owner asks otherwise, because the vendor driver stores it on the device and it probably survives a power cycle.

@@ -622,3 +622,38 @@ import CoreMIDI
         #expect(v.toApps.count == 1)                                                // no such device
     }
 }
+
+@Suite struct ExternalMIDITests {
+    /// Two virtual ports of the test stand for the interface wired to the console: what goes out of ExternalMIDI comes to the "console" and back.
+    @Test func carriesBytesBothWays() async throws {
+        let q = DispatchQueue(label: "ext.test")
+        let fake = CoreMIDIVirtual(queue: q, prefix: "GSEXT", idBase: 0x47535400)
+        try #require(fake.failure == nil)
+        let ext = ExternalMIDI(queue: q)
+        try #require(ext.failure == nil)
+        var fromExt: [UInt8] = [], toExt: [UInt8] = []
+        fake.onFromApplications = { _, b in fromExt += b }
+        ext.onReceive = { toExt += $0 }
+        ext.configure(input: "GSEXT MIDI 1", output: "GSEXT MIDI 1")
+        try await Task.sleep(nanoseconds: 400_000_000)
+        #expect(ext.connected)
+        ext.send([0x90, 0x01, 0x7F])
+        fake.sendToApplications(.legacy(0), bytes: [0xB0, 0x01, 0x40])
+        try await Task.sleep(nanoseconds: 400_000_000)
+        #expect(fromExt == [0x90, 0x01, 0x7F])
+        #expect(toExt == [0xB0, 0x01, 0x40])
+        ext.close()
+        try await Task.sleep(nanoseconds: 200_000_000)
+        #expect(!ext.connected)
+    }
+
+    @Test func aSettingsFileFromBeforeStillReads() throws {
+        var s = MIDISettings(); s.externalRoute = ExternalRoute(input: "A", output: "B")
+        let data = try JSONEncoder().encode(s)
+        #expect(try JSONDecoder().decode(MIDISettings.self, from: data).externalRoute == ExternalRoute(input: "A", output: "B"))
+        var plain = MIDISettings(); plain.externalRoute = nil
+        let text = String(decoding: try JSONEncoder().encode(plain), as: UTF8.self)
+        #expect(!text.contains("externalRoute"))
+        #expect(try JSONDecoder().decode(MIDISettings.self, from: Data(text.utf8)).externalRoute == nil)
+    }
+}

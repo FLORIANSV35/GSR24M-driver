@@ -5,12 +5,14 @@ import GSRCore
 struct MIDIView: View {
     @EnvironmentObject var model: MIDIModel
     @State private var exploring = false
+    @State private var restartingAgent = false
     var scrollStrips = true                    // false only for the preview image, which cannot draw scroll views
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             header
             if model.settings.mode == .protools {
+                consoleSetup
                 HStack(alignment: .top, spacing: 10) {
                     SelBanks()
                     if scrollStrips {
@@ -38,10 +40,15 @@ struct MIDIView: View {
                 ForEach(MIDIMode.allCases, id: \.self) { Text($0.title).tag($0) }
             }.pickerStyle(.segmented).labelsHidden().frame(width: 220)
             chip("MIDI agent", model.status != nil)
-            chip("Card MIDI", model.status?.card ?? false)
+            chip(model.settings.externalRoute == nil ? "Card MIDI" : "Interface", model.status?.card ?? false)
             if model.settings.mode == .protools, model.status != nil, model.status?.accessibility == false {
                 Button("Allow keyboard shortcuts") { model.askAccessibility() }
             }
+            Button(restartingAgent ? "Restarting…" : "Restart agent") {
+                restartingAgent = true
+                Services.restart(.agent) { _ in restartingAgent = false }
+            }.disabled(restartingAgent)
+            linkMenu
             Spacer()
             if model.settings.mode == .protools {
                 Button("Explore HUI…") { exploring = true }
@@ -50,10 +57,44 @@ struct MIDIView: View {
         }
     }
 
+    /// How the console is reached: the MIDI ports of the card, or a MIDI interface of the Mac wired to the console's MIDI sockets.
+    private var linkMenu: some View {
+        let route = model.settings.externalRoute
+        return HStack(spacing: 6) {
+            Picker("", selection: Binding(get: { route != nil }, set: { model.settings.externalRoute = $0 ? ExternalRoute(input: route?.input ?? "", output: route?.output ?? "") : nil })) {
+                Text("FireWire card").tag(false); Text("MIDI interface").tag(true)
+            }.pickerStyle(.menu).labelsHidden().frame(width: 130)
+            if let route {
+                let ports = ExternalMIDI.available()
+                Picker("In", selection: Binding(get: { route.input }, set: { model.settings.externalRoute?.input = $0 })) {
+                    Text("In: none").tag(""); ForEach(ports.inputs, id: \.self) { Text("In: \($0)").tag($0) }
+                    if !route.input.isEmpty && !ports.inputs.contains(route.input) { Text("In: \(route.input) (absent)").tag(route.input) }
+                }.pickerStyle(.menu).labelsHidden().frame(width: 190)
+                Picker("Out", selection: Binding(get: { route.output }, set: { model.settings.externalRoute?.output = $0 })) {
+                    Text("Out: none").tag(""); ForEach(ports.outputs, id: \.self) { Text("Out: \($0)").tag($0) }
+                    if !route.output.isEmpty && !ports.outputs.contains(route.output) { Text("Out: \(route.output) (absent)").tag(route.output) }
+                }.pickerStyle(.menu).labelsHidden().frame(width: 190)
+            }
+        }
+    }
+
     private func chip(_ title: String, _ ok: Bool) -> some View {
         HStack(spacing: 5) {
             Circle().fill(ok ? Color.green : Color.orange).frame(width: 9, height: 9)
             Text(title).font(.callout).foregroundStyle(.white)
+        }
+    }
+
+    /// What the console has to be set to (at power-up, user guide p.35): mode 3 and the MIDI channel the app listens to.
+    private var consoleSetup: some View {
+        HStack(spacing: 8) {
+            Text("Console: mode 3").font(.callout.bold()).foregroundStyle(.white)
+            Text("(power on holding PLAY, press SEL 3, then STOP)").font(.caption).foregroundStyle(.white.opacity(0.6))
+            Text("MIDI channel").font(.callout.bold()).foregroundStyle(.white)
+            Picker("", selection: Binding(get: { model.settings.consoleChannel + 1 }, set: { model.settings.consoleChannel = $0 - 1 })) {
+                ForEach(1...16, id: \.self) { Text("\($0)").tag($0) }
+            }.pickerStyle(.menu).labelsHidden().frame(width: 60)
+            Text("(power on holding REC, press SEL \(model.settings.consoleChannel + 1), then STOP)").font(.caption).foregroundStyle(.white.opacity(0.6))
         }
     }
 

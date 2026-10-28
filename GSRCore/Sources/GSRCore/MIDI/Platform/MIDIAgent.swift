@@ -6,7 +6,7 @@ public final class MIDIAgent {
     public static let serviceName = "com.gsr24m.midiagent"
 
     private let queue = DispatchQueue(label: "gsr.midi.agent")
-    private let card: XPCCardMIDI
+    private let card: RoutedCardMIDI
     private let virtual: CoreMIDIVirtual
     private let host: MIDIHost
     private var timer: DispatchSourceTimer?
@@ -17,10 +17,12 @@ public final class MIDIAgent {
     private var countersIn: UInt64 = 0, countersOut: UInt64 = 0
 
     public init?() {
-        card = XPCCardMIDI(queue: queue)
+        card = RoutedCardMIDI(queue: queue)
         virtual = CoreMIDIVirtual(queue: queue)
         if let f = virtual.failure { FileHandle.standardError.write(Data("gsrmidiagent: \(f)\n".utf8)); return nil }
-        host = MIDIHost(card: card, virtual: virtual, settings: MIDISettings.load())
+        let settings = MIDISettings.load()
+        card.apply(settings)
+        host = MIDIHost(card: card, virtual: virtual, settings: settings)
         host.onKeystroke = { [weak self] k in self?.keystroke(k) }
         host.onTraffic = { [weak self] dir, bytes in self?.traffic(dir, bytes) }
     }
@@ -51,7 +53,9 @@ public final class MIDIAgent {
         guard stamp != settingsStamp else { return }
         settingsStamp = stamp
         guard stamp != nil else { return }
-        host.apply(MIDISettings.load(), now: ProcessInfo.processInfo.systemUptime)
+        let s = MIDISettings.load()
+        card.apply(s)
+        host.apply(s, now: ProcessInfo.processInfo.systemUptime)
     }
 
     private func keystroke(_ k: KeyShortcut) {
@@ -95,6 +99,7 @@ public final class MIDIAgent {
                 switch op {
                 case "status":
                     xpc_dictionary_set_bool(reply, "card", self.card.connected)
+                    xpc_dictionary_set_bool(reply, "external", self.card.external)
                     xpc_dictionary_set_string(reply, "mode", self.host.settings.mode.rawValue)
                     xpc_dictionary_set_bool(reply, "accessibility", KeyInjector.isTrusted)
                     xpc_dictionary_set_uint64(reply, "bytesIn", self.countersIn)
