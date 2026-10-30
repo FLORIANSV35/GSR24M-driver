@@ -25,6 +25,7 @@ Working on the real card through Apple's FireWire user library, no kext, SIP on 
 - Apple's FireWire stack is still loaded on macOS 15 (`IOFireWireFamily` 4.8.3). Its user library `IOFireWireLib.plugin` has an arm64e slice, so a normal process can open the device, do async reads and writes, and run isochronous DCL programs. Proven.
 - The vendor driver is an x86_64 kernel extension. It cannot load here, and a new kext on Apple silicon needs reduced security. We avoid kexts entirely.
 - CoreAudio accepts user-space drivers as AudioServerPlugIns. CoreMIDI accepts virtual endpoints created by any process.
+- Intel Macs: every binary is universal (arm64 and x86_64: `gsrd/build.sh` and `hal/build.sh` pass both `-arch`, `GSRCore/build_universal.sh` builds the Swift products one architecture at a time and joins them with `lipo`, because SwiftPM only builds two at once with Xcode; the installer allows both). Nothing in the C code depends on the Apple silicon timer (the host clock is converted with `mach_timebase_info`). Tested under Rosetta: the 134 Swift tests (run through `swiftpm-testing-helper`, since SwiftPM itself cannot run as x86_64), `midi_test` and the plug-in harness against the simulator. Not tested: the card on a real Intel Mac, and Rosetta cannot reach FireWire (the IOFireWireLib plug-in of an Apple silicon Mac has no x86_64 slice).
 
 ## Components
 

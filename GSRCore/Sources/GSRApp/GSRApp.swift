@@ -33,6 +33,9 @@ struct GSRApp: App {
         if let i = CommandLine.arguments.firstIndex(of: "--render-midi"), i + 1 < CommandLine.arguments.count {
             MIDIPreview.render(to: CommandLine.arguments[i + 1]); exit(0)
         }
+        if let i = CommandLine.arguments.firstIndex(of: "--render-dev"), i + 1 < CommandLine.arguments.count {
+            DevPreview.render(to: CommandLine.arguments[i + 1]); exit(0)
+        }
     }
     var body: some Scene {
         WindowGroup("Allen and Heath Firewire") {
@@ -44,7 +47,7 @@ struct GSRApp: App {
     }
 }
 
-enum GlobalTab: String, CaseIterable { case monitor = "Monitor", bus = "Bus", system = "System", info = "Info", diag = "Diagnostic" }
+enum GlobalTab: String, CaseIterable { case monitor = "Monitor", bus = "Bus", system = "System", info = "Info", diag = "Diagnostic", dev = "Dev" }
 enum DeviceTab: String, CaseIterable { case general = "General", channels = "Channels", recall = "Recall", midi = "MIDI", firmware = "Firmware" }
 
 struct ContentView: View {
@@ -179,6 +182,7 @@ struct ContentView: View {
         case .system: systemTab
         case .info: infoTab
         case .diag: diagTab
+        case .dev: DevView(model: model)
         }
     }
 

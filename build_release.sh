@@ -8,13 +8,13 @@ VER=$(cat VERSION)
 echo "== GSR24M $VER"
 (cd gsrd && ./build.sh)
 (cd hal && ./build.sh)
-(cd GSRCore && swift test 2>&1 | tail -1 && ./make_app.sh && swift build -c release --product GSRMidiAgent && codesign --force --sign - .build/release/GSRMidiAgent)
+(cd GSRCore && swift test 2>&1 | tail -1 && ./make_app.sh && true)          # make_app.sh builds the app and the agent, both universal (GSRCore/.build/universal)
 STAGE=$ROOT/dist/stage
 rm -rf "$ROOT/dist"; mkdir -p "$STAGE/Applications" "$STAGE/Library/Audio/Plug-Ins/HAL" "$STAGE/Library/LaunchDaemons" "$STAGE/Library/LaunchAgents" "$STAGE/usr/local/libexec"
 cp -R GSRCore/build/GSR24M.app "$STAGE/Applications/"
 cp -R hal/GSR24M.driver "$STAGE/Library/Audio/Plug-Ins/HAL/"
 cp gsrd/gsrd "$STAGE/usr/local/libexec/gsrd"
-cp GSRCore/.build/release/GSRMidiAgent "$STAGE/usr/local/libexec/gsrmidiagent"
+cp GSRCore/.build/universal/GSRMidiAgent "$STAGE/usr/local/libexec/gsrmidiagent"
 cp installer/com.gsr24m.midiagent.plist "$STAGE/Library/LaunchAgents/"
 cp gsrd/com.gsr24m.gsrd.plist "$STAGE/Library/LaunchDaemons/"
 cp installer/uninstall.sh "$STAGE/usr/local/libexec/gsr24m-uninstall.sh"

@@ -1,13 +1,13 @@
 import Foundation
 
-/// A version number "major.minor.patch" (a leading "v" and any "-suffix" are ignored).
+/// A version number "major.minor.patch" (a leading "v" and any "-suffix" or "_suffix" are ignored).
 public struct SemVer: Comparable, Equatable, CustomStringConvertible {
     public var major: Int, minor: Int, patch: Int
     public init(_ major: Int, _ minor: Int, _ patch: Int) { self.major = major; self.minor = minor; self.patch = patch }
     public init?(_ text: String) {
         var t = text.trimmingCharacters(in: .whitespaces)
         if t.hasPrefix("v") || t.hasPrefix("V") { t.removeFirst() }
-        if let dash = t.firstIndex(of: "-") { t = String(t[..<dash]) }
+        if let cut = t.firstIndex(where: { $0 == "-" || $0 == "_" }) { t = String(t[..<cut]) }          // "0.4.1-beta" and a development build "0.4.1_DEV" count as 0.4.1
         let parts = t.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) }
         guard (1...3).contains(parts.count), parts.allSatisfy({ $0 != nil && $0! >= 0 }) else { return nil }
         self.init(parts[0]!, parts.count > 1 ? parts[1]! : 0, parts.count > 2 ? parts[2]! : 0)

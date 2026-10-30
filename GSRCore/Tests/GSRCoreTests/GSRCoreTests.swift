@@ -286,6 +286,7 @@ func syntheticReport(vendor: String, specID: String, guid: String) -> String {
         #expect(SemVer("v0.10.0")! > SemVer("0.9.9")!)
         #expect(SemVer("1.0")! == SemVer(1, 0, 0))
         #expect(SemVer("0.2.0-beta")! == SemVer(0, 2, 0))
+        #expect(SemVer("0.4.1_DEV")! == SemVer(0, 4, 1))                       // a development build counts as that release: no update is offered for the same number
         #expect(SemVer("abc") == nil && SemVer("1.2.3.4") == nil && SemVer("") == nil)
     }
 

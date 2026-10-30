@@ -3,7 +3,7 @@
     <title>GSR24M</title>
     <welcome file="welcome.html" mime-type="text/html"/>
     <conclusion file="conclusion.html" mime-type="text/html"/>
-    <options customize="never" require-scripts="false" hostArchitectures="arm64"/>
+    <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
     <allowed-os-versions><os-version min="13.0"/></allowed-os-versions>
     <choices-outline><line choice="default"><line choice="com.gsr24m.pkg"/></line></choices-outline>
     <choice id="default"/>
