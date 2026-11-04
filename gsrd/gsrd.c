@@ -195,6 +195,8 @@ static uint64_t gRxCnt, gRxFirstCnt; static double gRxFirstU, gRxU; static uint3
 static uint32_t gRxPrevSytTicks;
 // output mapping
 static int gOutCal; static int64_t gD;
+static _Atomic uint64_t gLateAhead, gLateGone;           // late output frames: not written yet by the plug-in / already overwritten (their sum is H->outLate)
+static int64_t gAheadMin = INT64_MAX, gAheadMax = INT64_MIN, gGoneMax;   // how far (frames) the read position was from the written one, since the last stats line
 static volatile int gOutActive;            // the plug-in has written output recently (not derived from ioClients, which can leak when a client dies)
 static uint64_t gOutWSeen; static CFAbsoluteTime gOutWChanged;    // sample time of playback block p = p + gD
 static CFAbsoluteTime gSessionStart;
@@ -320,10 +322,13 @@ static void buildPacket(PlayS *ps, uint64_t seq, double tSend, double sendBus) {
             for (; m < 40; m++) if (fmod(tr + m * gR - target + 49152.0 * 4, 49152.0) < gR) break;
             gT0tick = fmod(tr + m * gR, 49152.0);
             gN0 = ps->dataIdx; gSyncStarted = 1;
-            if (ps->idx == 0 && sendBus >= 0) {
-                gPresBus = sendBus + fmod(gT0tick - tSend + 49152.0 * 4, 49152.0);
-                gP0 = ps->frame; gHavePres = 1;
-            }
+        }
+        if (!gHavePres && ps->idx == 0 && sendBus >= 0) {
+            // Recorded for stream 0 whichever stream started the time line: when stream 1 gets its first time stamp first, the time line is
+            // already started and this used to be skipped, so the whole session ran without output alignment ("no presentation time recorded").
+            double toutP = gT0tick + (double)((int64_t)ps->dataIdx - (int64_t)gN0) * gR;
+            gPresBus = sendBus + fmod(toutP - tSend + 49152.0 * 4, 49152.0);
+            gP0 = ps->frame; gHavePres = 1;
         }
         double tout = gT0tick + (double)(ps->dataIdx - gN0) * gR;
         uint32_t tk = (uint32_t)fmod(tout, 49152.0);
@@ -340,7 +345,11 @@ static void buildPacket(PlayS *ps, uint64_t seq, double tSend, double sendBus) {
         if (clients) {
             int64_t S = (int64_t)ps->frame + gD;
             if (S >= 0 && (uint64_t)S < outW && (uint64_t)S + H->ringFrames > outW) { src = ring + (size_t)((uint64_t)S & gOutMask) * GSR_MAX_CH + ps->idx * CH_PER_STREAM; have = 1; }
-            else if (S >= 0 && ps->idx == 0) atomic_fetch_add_explicit(&H->outLate, 1, memory_order_relaxed);
+            else if (S >= 0 && ps->idx == 0) {
+                atomic_fetch_add_explicit(&H->outLate, 1, memory_order_relaxed);
+                if ((uint64_t)S >= outW) { atomic_fetch_add_explicit(&gLateAhead, 1, memory_order_relaxed); int64_t a = S - (int64_t)outW; if (a < gAheadMin) gAheadMin = a; if (a > gAheadMax) gAheadMax = a; }
+                else { atomic_fetch_add_explicit(&gLateGone, 1, memory_order_relaxed); int64_t g = (int64_t)outW - S; if (g > gGoneMax) gGoneMax = g; }
+            }
         }
         for (unsigned c = 0; c < ps->pcm; c++, q += 4) {
             int32_t x = 0;
@@ -710,6 +719,8 @@ static size_t buildInfoJson(char *buf, size_t cap) {
     o = jappend(buf, cap, o, "{\"version\":1,\"state\":%u,\"generation\":%u,\"haveCard\":%s,\"owned\":%s", atomic_load(&H->state), atomic_load(&H->generation), n.haveCard ? "true" : "false", gOwned ? "true" : "false");
     o = jappend(buf, cap, o, ",\"sessions\":%u,\"busResets\":%u,\"uptime\":%.0f,\"leadMs\":%u,\"ioClients\":%u", gSessions, gBusResets, CFAbsoluteTimeGetCurrent() - gStartedAt, gLeadMs, atomic_load(&H->ioClients));
     o = jappend(buf, cap, o, ",\"inLate\":%llu,\"outLate\":%llu,\"inWritten\":%llu", (unsigned long long)atomic_load(&H->inLate), (unsigned long long)atomic_load(&H->outLate), (unsigned long long)atomic_load(&H->inWritten));
+    o = jappend(buf, cap, o, ",\"outLateAhead\":%llu,\"outLateGone\":%llu,\"outWritten\":%llu,\"ringFrames\":%u,\"safetyIn\":%u,\"safetyOut\":%u,\"outOffset\":%lld,\"presRecorded\":%d,\"outPluginWriting\":%d",
+                (unsigned long long)atomic_load(&gLateAhead), (unsigned long long)atomic_load(&gLateGone), (unsigned long long)atomic_load(&H->outWritten), H->ringFrames, H->safetyIn, H->safetyOut, (long long)gD, gHavePres, (int)gOutActive);
     o = jappend(buf, cap, o, ",\"cipErrors\":%llu,\"dbcJumps\":%llu,\"maxGapMs\":%.1f", (unsigned long long)(gC[0].badCip + gC[1].badCip), (unsigned long long)(gC[0].dbcJumps + gC[1].dbcJumps), gMaxGap * 1000);
     jesc(e, sizeof e, gLastError); o = jappend(buf, cap, o, ",\"error\":\"%s\"", e);
     if (n.haveCard) {
@@ -924,7 +935,7 @@ static EndReason runSession(unsigned rate, unsigned *nextRate) {
     memset(gsr_in_ring(H), 0, (size_t)H->ringFrames * GSR_MAX_CH * sizeof(float));
     memset(gsr_out_ring(H), 0, (size_t)H->ringFrames * GSR_MAX_CH * sizeof(float));
     atomic_store(&H->inWritten, 0); atomic_store(&H->outRead, 0); atomic_store(&H->outWritten, 0);
-    atomic_store(&H->inLate, 0); atomic_store(&H->outLate, 0);
+    atomic_store(&H->inLate, 0); atomic_store(&H->outLate, 0); atomic_store(&gLateAhead, 0); atomic_store(&gLateGone, 0); gAheadMin = INT64_MAX; gAheadMax = INT64_MIN; gGoneMax = 0;
     gOutRing = (uint8_t *)gsr_out_ring(H); gOutMask = H->ringFrames - 1;
 
     for (unsigned i = 0; i < NSTREAM; i++) if (!buildCapture(&gC[i], i, pcmT[i], midiT[i])) { logf2("capture setup failed"); goto done; }
@@ -1009,6 +1020,11 @@ static EndReason runSession(unsigned rate, unsigned *nextRate) {
                 logf2("stats: capture data packets %" PRIu64 "/%" PRIu64 " (CIP errors %" PRIu64 ", DBC jumps %" PRIu64 "), longest send callback gap %.1f ms, input late %" PRIu64 ", output late %" PRIu64 ", clients %u",
                       gC[0].data, gC[1].data, gC[0].badCip + gC[1].badCip, gC[0].dbcJumps + gC[1].dbcJumps, gMaxGap * 1000, (uint64_t)atomic_load(&H->inLate), (uint64_t)atomic_load(&H->outLate), atomic_load(&H->ioClients));
                 gMaxGap = 0;
+                if (atomic_load(&gLateAhead) + atomic_load(&gLateGone) > 0 || gOutActive)
+                    logf2("output: frames late because not written yet %" PRIu64 " (read position ahead of the written one by %" PRId64 " to %" PRId64 " frames), already overwritten %" PRIu64 " (behind by up to %" PRId64 "); offset %" PRId64 ", presentation recorded %d, safety out %u frames, written %" PRIu64 ", ring %u frames, plug-in writing %d",
+                          (uint64_t)atomic_load(&gLateAhead), gAheadMin == INT64_MAX ? 0 : gAheadMin, gAheadMax == INT64_MIN ? 0 : gAheadMax, (uint64_t)atomic_load(&gLateGone), gGoneMax, gD, gHavePres, H->safetyOut,
+                          (uint64_t)atomic_load(&H->outWritten), H->ringFrames, (int)gOutActive);
+                gAheadMin = INT64_MAX; gAheadMax = INT64_MIN; gGoneMax = 0;
             }
             if (now - lastStat >= 1.0) {
                 lastStat = now;

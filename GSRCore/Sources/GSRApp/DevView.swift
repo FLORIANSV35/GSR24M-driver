@@ -40,10 +40,7 @@ final class DevModel: ObservableObject {
         state.daemonInstalled = AppModel.daemonInstalled; state.daemonAnswers = app.live != nil
         state.ownedGUID = app.live != nil ? app.devices.first?.report.guid : nil
         state.dicedump = Bundle.main.url(forResource: "dicedump", withExtension: nil)?.path
-        if let i = app.live {
-            state.daemon = (AppModel.daemonLog(i) + ["generation \(i.generation), state \(i.state), owned \(i.owned), version \(i.version), IO clients \(i.ioClients), lead \(i.leadMs) ms"]
-                + (app.devices.first.map { ["", "Card as the daemon reports it:"] + Self.cardLines($0.report) } ?? [])).joined(separator: "\n")
-        }
+        if let i = app.live { state.daemon = Self.daemonText(i, card: app.devices.first?.report) }
         state.midiPorts = Self.midiPortNames()
         state.settings = (try? String(contentsOf: MIDISettings.fileURL, encoding: .utf8)) ?? "(no midi.json)"
         let context = self.context
@@ -58,6 +55,19 @@ final class DevModel: ObservableObject {
             let result = message
             await MainActor.run { self.status = result; self.busy = false; if FileManager.default.fileExists(atPath: url.path) { self.saved = url } }
         }
+    }
+
+    static func daemonText(_ i: DaemonInfo, card: DiceReport?) -> String {
+        var l: [String] = AppModel.daemonLog(i)
+        l.append("generation \(i.generation), state \(i.state), owned \(i.owned), version \(i.version), IO clients \(i.ioClients), lead \(i.leadMs) ms")
+        if let safetyOut = i.safetyOut {
+            let late = "not written yet \(i.outLateAhead ?? 0), already overwritten \(i.outLateGone ?? 0)"
+            let timing = "safety in/out \(i.safetyIn ?? 0)/\(safetyOut) frames, ring \(i.ringFrames ?? 0) frames, written \(i.outWritten ?? 0)"
+            let align = "offset \(i.outOffset ?? 0), presentation recorded \(i.presRecorded ?? 0), plug-in writing \(i.outPluginWriting ?? 0)"
+            l.append("output frames late: " + late + "; " + timing + "; " + align)
+        }
+        if let r = card { l.append(""); l.append("Card as the daemon reports it:"); l += cardLines(r) }
+        return l.joined(separator: "\n")
     }
 
     static func cardLines(_ r: DiceReport) -> [String] {
@@ -108,7 +118,7 @@ struct DevView: View {
                              "The FireWire bus as macOS lists it (devices, identifiers, speeds)",
                              "A read-only dump of the DICE units the daemon does not hold (a ZED-R16, a second console)",
                              "The state of the gsrd daemon and of the MIDI agent, the MIDI ports, the settings file",
-                             "The last lines of the logs; your name, home folder and computer name are blanked",
+                             "The last lines of the logs, and the lines the audio plug-in wrote in CoreAudio's log; your name, home folder and computer name are blanked",
                              "It does contain your devices' identifiers (GUID, nickname): look inside before you send it"], id: \.self) { Text("• " + $0).font(.caption).foregroundStyle(.white.opacity(0.8)) }
                 }.padding(.top, 4)
             }.foregroundStyle(.white)

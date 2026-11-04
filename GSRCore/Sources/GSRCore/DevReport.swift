@@ -82,6 +82,8 @@ public enum DevReport {
         }.joined(separator: "\n")))
         out.append(("firewire-profiler.txt", runner("/usr/sbin/system_profiler", ["SPFireWireDataType", "SPThunderboltDataType"], 40)))
         out.append(("audio-profiler.txt", runner("/usr/sbin/system_profiler", ["SPAudioDataType"], 40)))
+        // what the audio plug-in told CoreAudio and what CoreAudio did (the plug-in writes its lines with the prefix GSR24M into coreaudiod's log)
+        out.append(("coreaudiod-plugin.log", runner("/usr/bin/log", ["show", "--last", "60m", "--style", "compact", "--predicate", "process == \"coreaudiod\" AND eventMessage CONTAINS \"GSR24M\""], 90)))
         // the read-only dump of every DICE unit that the daemon does not hold open
         if let tool = s.dicedump {
             let list = runner(tool, ["-l"], 20)
@@ -101,7 +103,7 @@ public enum DevReport {
         }
         out.insert(("README.txt", """
             This folder was written by the Dev tab of the GSR24M application. Nothing in it was sent anywhere: you decide whether to share it.
-            It only READS: system information, the list of FireWire devices, a read-only dump of the DICE units the daemon does not hold, the state of the daemon and of the MIDI
+            It only READS: system information, the list of FireWire devices, the lines the audio plug-in wrote in CoreAudio's log, a read-only dump of the DICE units the daemon does not hold, the state of the daemon and of the MIDI
             agent, and the last lines of their logs. Your user name, your home folder and your computer's name were replaced by <redacted> or ~.
             It does hold the identifiers of your FireWire devices (GUID, serial numbers, nicknames). Look at the files before you send them.
             Files: \(out.map { $0.0 }.joined(separator: ", "))

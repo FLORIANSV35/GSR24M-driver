@@ -28,6 +28,8 @@ enum { kObjPlugIn = kAudioObjectPlugInObject, kObjDevice = 2, kObjStreamIn = 3, 
 enum { kChangeRate = 1, kChangeRefresh = 2 };
 static _Atomic uint32_t gRateRequested;          // rate a client asked for; the change is applied (and waited for) in PerformDeviceConfigurationChange
 static uint32_t gPubNamesRev;
+static _Atomic int gFirstArmed;                       // 1: StartIO happened, the first WriteMix will be noted; 2: noted, to be logged by the connect thread (never log from the IO thread)
+static _Atomic int64_t gFirstS0; static _Atomic uint32_t gFirstN;
 static uint32_t gPubSafetyIn = 256, gPubSafetyOut = 256, gPubInLat, gPubOutLat;   // timing values CoreAudio has been given (connect thread / config change only)
 #define ZERO_PERIOD 4096u
 #define ANCHOR_STALE_NS 1500000000ull          // anchor older than this: gsrd is considered gone
@@ -144,6 +146,11 @@ static void *connectThread(void *arg) {
             }
         } else {
             uint32_t r = atomic_load(&h->sampleRate);
+            if (atomic_load(&gFirstArmed) == 2) {
+                LOG("first output write after StartIO: sample time %lld (%u frames); ring: input written %llu, output written %llu, ring %u frames; the ring says safety out %u, CoreAudio was given %u",
+                    (long long)atomic_load(&gFirstS0), atomic_load(&gFirstN), (unsigned long long)atomic_load(&h->inWritten), (unsigned long long)atomic_load(&h->outWritten), h->ringFrames, h->safetyOut, gPubSafetyOut);
+                atomic_store(&gFirstArmed, 0);
+            }
             { uint32_t nr = atomic_load(&h->namesRevision);
               if (nr != gPubNamesRev && gHost) {
                   gPubNamesRev = nr;
@@ -421,6 +428,9 @@ static OSStatus StartIO(AudioServerPlugInDriverRef d, AudioObjectID o, UInt32 c)
     (void)d; (void)o; (void)c;
     if (atomic_fetch_add(&gIoRunning, 1) == 0) gVirtHost = 0;
     GsrRingHeader *h = hdr(); if (h) atomic_fetch_add(&h->ioClients, 1);
+    LOG("StartIO: CoreAudio was given safety in/out %u/%u and latency in/out %u/%u frames; the ring says safety %u/%u (header %s)", gPubSafetyIn, gPubSafetyOut, gPubInLat, gPubOutLat,
+        h ? h->safetyIn : 0, h ? h->safetyOut : 0, h ? "mapped" : "absent");
+    atomic_store(&gFirstArmed, 1);
     return kAudioHardwareNoError;
 }
 static OSStatus StopIO(AudioServerPlugInDriverRef d, AudioObjectID o, UInt32 c) {
@@ -480,6 +490,7 @@ static OSStatus DoIO(AudioServerPlugInDriverRef d, AudioObjectID o, AudioObjectI
         const uint8_t *src = main;                                      // native format: 24 bit signed, packed
         const size_t fb = GSR_MAX_CH * 3;
         int64_t s0 = (int64_t)info->mOutputTime.mSampleTime, mask = h->ringFrames - 1;
+        if (atomic_load_explicit(&gFirstArmed, memory_order_relaxed) == 1 && atomic_exchange(&gFirstArmed, 2) == 1) { atomic_store(&gFirstS0, s0); atomic_store(&gFirstN, n); }
         float *ring = gsr_out_ring(h);
         for (UInt32 f = 0; f < n; f++) {
             int64_t sf = s0 + f;

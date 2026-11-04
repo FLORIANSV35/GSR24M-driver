@@ -47,7 +47,7 @@ import Testing
         let files = DevReport.files(context: .init(zedR16: true, notes: "ZED on the second port"), state: s, runner: fake(list, calls: calls), readFile: { $0 == "/tmp/gsr24m-midiagent.log" ? "a\nb" : nil })
         let names = files.map { $0.name }
         #expect(names.first == "README.txt")
-        for n in ["context.txt", "system.txt", "firewire-ioreg.txt", "firewire-profiler.txt", "audio-profiler.txt", "dicedump-list.txt", "daemon.txt", "agent.txt", "midi-ports.txt", "logs/gsrd.log", "logs/midiagent.log", "logs/install.log"] { #expect(names.contains(n), "\(n)") }
+        for n in ["context.txt", "system.txt", "firewire-ioreg.txt", "firewire-profiler.txt", "audio-profiler.txt", "coreaudiod-plugin.log", "dicedump-list.txt", "daemon.txt", "agent.txt", "midi-ports.txt", "logs/gsrd.log", "logs/midiagent.log", "logs/install.log"] { #expect(names.contains(n), "\(n)") }
         let text = Dictionary(uniqueKeysWithValues: files.map { ($0.name, $0.text) })
         #expect(text["dicedump-0x0004C4AAAA000001.txt"]?.contains("Held open by the gsrd daemon") == true)
         #expect(text["dicedump-0x0004C4AAAA000002.txt"]?.hasPrefix("DUMP of 0x0004C4AAAA000002") == true, "the ZED, not held by the daemon, is dumped")
@@ -55,10 +55,11 @@ import Testing
         #expect(text["context.txt"]?.contains("ZED-R16") == true && text["context.txt"]?.contains("ZED on the second port") == true)
         #expect(text["logs/midiagent.log"] == "a\nb" && text["logs/gsrd.log"] == "(not present)")
         let c = calls.items
+        #expect(c.contains { $0.hasPrefix("log show --last 60m") && $0.contains("GSR24M") }, "the plug-in lines of the CoreAudio log are collected")
         #expect(c.contains("dicedump -g 0x0004C4AAAA000002") && !c.contains("dicedump -g 0x0004C4AAAA000001"))
         // only read-only tools: nothing else was run
         let tools = Set(c.map { String($0.split(separator: " ").first!) })
-        #expect(tools.isSubset(of: ["sw_vers", "uname", "sysctl", "ioreg", "system_profiler", "dicedump"]), "\(tools)")
+        #expect(tools.isSubset(of: ["sw_vers", "uname", "sysctl", "ioreg", "system_profiler", "log", "dicedump"]), "\(tools)")
     }
 
     @Test func aDaemonThatDoesNotAnswerMeansNoDirectRead() {

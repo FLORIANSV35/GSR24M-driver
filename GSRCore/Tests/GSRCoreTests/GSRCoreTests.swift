@@ -196,6 +196,15 @@ func syntheticReport(vendor: String, specID: String, guid: String) -> String {
     {"version":1,"state":2,"generation":3,"haveCard":true,"owned":true,"sessions":2,"busResets":0,"uptime":120,"leadMs":80,"ioClients":1,"inLate":0,"outLate":672,"inWritten":5760000,"cipErrors":0,"dbcJumps":0,"maxGapMs":2.3,"error":"","guid":"0x0004C40400400345","vendor":"A_H","model":"Allen_and_Heath_GS_R_24","vendorID":1220,"modelID":1,"unitSpecID":1220,"nickName":"GS R-24","clockSource":"internal","rate":48000,"locked":true,"ext":192,"dice":"1.0.12.0","rates":[44100,48000,88200,96000],"sources":["wc","internal"],"clockSources":[{"id":"aes1","label":"AES12"},{"id":"internal","label":"Internal"}],"tx":[{"index":0,"iso":3,"pcm":16,"midi":3,"speed":"S400","names":["CH1/CH1/2","CH2/CH1/2"]},{"index":1,"iso":4,"pcm":16,"midi":0,"speed":"S400","names":["CH17/CH17/18"]}],"rx":[{"index":0,"iso":1,"pcm":16,"midi":3,"speed":"","names":["CH1/CH1/2"]}],"customIn":["Kick","",""],"customOut":["","",""]}
     """
 
+    @Test func decodesThePlaybackDiagnosticsOfAnewerDaemonAndStillReadsTheOldOnes() throws {
+        let old = try #require(DaemonInfo.decode(Self.sample))
+        #expect(old.safetyOut == nil && old.outLateAhead == nil)                                    // a daemon from before 0.5.1
+        let json = Self.sample.replacingOccurrences(of: "\"outLate\":672,", with: "\"outLate\":672,\"outLateAhead\":600,\"outLateGone\":72,\"outWritten\":123456,\"ringFrames\":65536,\"safetyIn\":480,\"safetyOut\":14544,\"outOffset\":-7,\"presRecorded\":1,\"outPluginWriting\":1,")
+        let i = try #require(DaemonInfo.decode(json))
+        #expect(i.outLateAhead == 600 && i.outLateGone == 72 && i.outWritten == 123456 && i.ringFrames == 65536 && i.safetyOut == 14544 && i.outOffset == -7 && i.presRecorded == 1 && i.outPluginWriting == 1)
+        #expect(i.outLate == 672 && i.outLate == (i.outLateAhead ?? 0) + (i.outLateGone ?? 0))
+    }
+
     @Test func decodesDaemonJSON() throws {
         let i = try #require(DaemonInfo.decode(Self.sample))
         #expect(i.state == 2 && i.isStreaming && i.leadMs == 80 && i.outLate == 672)

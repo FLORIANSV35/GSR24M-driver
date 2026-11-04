@@ -34,6 +34,9 @@ public struct DaemonInfo: Codable, Equatable {
     public var dbcJumps: UInt64
     public var maxGapMs: Double
     public var error: String
+    /// Playback diagnostics (0.5.1): the late output frames by kind, the position of the plug-in's writes and the timing CoreAudio is given. Nil with an older daemon.
+    public var outLateAhead: UInt64?, outLateGone: UInt64?, outWritten: UInt64?
+    public var ringFrames: Int?, safetyIn: Int?, safetyOut: Int?, outOffset: Int?, presRecorded: Int?, outPluginWriting: Int?
     public var customIn: [String]
     public var customOut: [String]
 
