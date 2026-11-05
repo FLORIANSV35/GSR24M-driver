@@ -957,6 +957,16 @@ static EndReason runSession(unsigned rate, unsigned *nextRate) {
     if (gRxCnt < 1500) { logf2("not enough card packets to measure its timeline (%" PRIu64 ")", gRxCnt); goto done; }
     gR = (gRxU - gRxFirstU) / (double)(gRxCnt - 1 - gRxFirstCnt);
     logf2("rate %u: card presentation time advance %.4f ticks per data packet (%+.1f ppm against 4096)", rate, gR, (gR / 4096.0 - 1) * 1e6);
+    {
+        // A card clock is within some ppm of nominal. A measurement far off (seen on a built-in Intel OHCI controller: playback frames were
+        // generated ~4.7 % too fast, so the read position ran away from the written one and all output was silent) means the receive side
+        // lost or repeated packets during the 0.6 s listen: use the nominal value instead.
+        double nominal = 24576000.0 * (double)gBlocks / (double)rate;
+        if (fabs(gR / nominal - 1.0) > 0.002) {
+            logf2("rate %u: measured advance %.4f is %+.0f ppm from the nominal %.4f: using the nominal value", rate, gR, (gR / nominal - 1) * 1e6, nominal);
+            gR = nominal;
+        }
+    }
     usleep(300000);
     for (unsigned i = 0; i < NSTREAM; i++) { CapS *c = &gC[i]; c->packets = c->data = c->empty = c->badCip = c->badDbs = c->dbcJumps = c->startup = c->shortPkt = 0; c->haveDbc = 0; c->fw = 0; c->haveU0 = 0; c->active = 0; c->t0 = 0; }
 
@@ -1025,6 +1035,13 @@ static EndReason runSession(unsigned rate, unsigned *nextRate) {
                           (uint64_t)atomic_load(&gLateAhead), gAheadMin == INT64_MAX ? 0 : gAheadMin, gAheadMax == INT64_MIN ? 0 : gAheadMax, (uint64_t)atomic_load(&gLateGone), gGoneMax, gD, gHavePres, H->safetyOut,
                           (uint64_t)atomic_load(&H->outWritten), H->ringFrames, (int)gOutActive);
                 gAheadMin = INT64_MAX; gAheadMax = INT64_MIN; gGoneMax = 0;
+                {   // rates over the last interval, on the same monotonic clock: frames generated for the card vs frames written by CoreAudio vs captured
+                    static double pT; static uint64_t pF, pW, pI;
+                    uint64_t f = gP[0].frame, w = atomic_load(&H->outWritten), in = atomic_load(&H->inWritten);
+                    if (pT > 0 && now > pT)
+                        logf2("rates (frames/s): playback generated %.0f, plug-in written %.0f, captured %.0f; gR %.4f", (double)(f - pF) / (now - pT), (double)(w - pW) / (now - pT), (double)(in - pI) / (now - pT), gR);
+                    pT = now; pF = f; pW = w; pI = in;
+                }
             }
             if (now - lastStat >= 1.0) {
                 lastStat = now;
