@@ -133,6 +133,7 @@ public enum DevReport {
     public static func run(_ tool: String, _ args: [String], _ timeout: TimeInterval) -> String {
         guard FileManager.default.isExecutableFile(atPath: tool) else { return "(\(tool) is not available)" }
         let p = Process(); p.executableURL = URL(fileURLWithPath: tool); p.arguments = args
+        p.qualityOfService = .background          // the report must never compete with the audio chain for the CPU or the disk
         let pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
         var data = Data(); let lock = NSLock()
         pipe.fileHandleForReading.readabilityHandler = { h in let d = h.availableData; lock.lock(); data.append(d); lock.unlock() }

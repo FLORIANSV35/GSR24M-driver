@@ -68,7 +68,7 @@ static inline void gsr_anchor_write(GsrRingHeader *h, uint64_t frame, uint64_t h
 
 // Consumer side: consistent read of the anchor. Returns 0 if no anchor yet.
 static inline int gsr_anchor_read(GsrRingHeader *h, uint64_t *frame, uint64_t *host, double *tpf) {
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < 64; i++) {
         uint32_t s0 = atomic_load_explicit(&h->anchorSeq, memory_order_acquire);
         if (s0 & 1) continue;
         uint64_t f = h->anchorFrame, t = h->anchorHost; double p = h->hostTicksPerFrame;

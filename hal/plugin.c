@@ -43,6 +43,7 @@ static _Atomic uint32_t gIoRunning;
 static _Atomic uint32_t gPresent;               // the card is there: the device is listed (it leaves the list when the card has been gone for a few seconds)
 static uint64_t gVirtHost;                      // free-running clock origin (IO thread only)
 static _Atomic uint32_t gVirtSeed = 1;
+static _Atomic uint32_t gAnchorMiss, gVirtUse;   // anchor reads that failed (last good anchor used) / calls answered by the free-running clock; logged by the connect thread, never from the IO path
 static mach_timebase_info_data_t gTb;
 static double gHostHz;                          // mach ticks per second
 
@@ -175,6 +176,16 @@ static void *connectThread(void *arg) {
             else if (!absentSince) absentSince = hostNow();
             else if ((hostNow() - absentSince) * gTb.numer / gTb.denom > 3000000000ull) setPresent(0);
         }
+        {   // what the IO path cannot say itself (no logging there): how often the anchor could not be read, how often the free-running clock answered
+            static uint32_t seenMiss, seenVirt; static uint64_t lastNote;
+            uint32_t m = atomic_load(&gAnchorMiss), v = atomic_load(&gVirtUse);
+            uint64_t tn = hostNow();
+            if ((m != seenMiss || v != seenVirt) && (!lastNote || (tn - lastNote) * gTb.numer / gTb.denom >= 5000000000ull)) {     // at most one note per 5 s
+                if (m != seenMiss) LOG("anchor read failed %u time(s) while gsrd was updating it: the last good anchor was used (total %u)", m - seenMiss, m);
+                if (v != seenVirt) LOG("the free-running clock answered %u time(s) (no anchor from gsrd): the zero time stamp seed changes (total %u)", v - seenVirt, v);
+                seenMiss = m; seenVirt = v; lastNote = tn;
+            }
+        }
         usleep(250000);
     }
     return NULL;
@@ -183,16 +194,30 @@ static void *connectThread(void *arg) {
 // ---------- clock ----------
 
 // Returns the sample time now and the host time of a given sample time. Falls back to a free-running clock.
+// Last anchor read successfully. A read can fail now and then (gsrd is in the middle of an update, which lasts as long as its thread is preempted):
+// dropping to the free-running clock for that one call changes the zero time stamp seed and back at the next call, CoreAudio re-anchors its timeline twice
+// ("Zero timestamp seed changed") and the output drops. A failed read uses the last good anchor, which is only about a millisecond old.
+static _Atomic uint64_t gLastAncF, gLastAncT, gLastAncP;
 static int clockNow(Float64 *framesNow, uint64_t *seed, double *tpf, uint64_t *f0, uint64_t *h0) {
     GsrRingHeader *h = hdr();
     uint64_t now = hostNow();
     uint64_t f, t; double p;
     int64_t dAge;
-    if (h && gsr_anchor_read(h, &f, &t, &p) && (dAge = (int64_t)(now - t)) < (int64_t)(ANCHOR_STALE_NS * gTb.denom / gTb.numer)) {
+    int got = h && gsr_anchor_read(h, &f, &t, &p);
+    if (got) {
+        union { double d; uint64_t u; } pu; pu.d = p;
+        atomic_store_explicit(&gLastAncF, f, memory_order_relaxed); atomic_store_explicit(&gLastAncP, pu.u, memory_order_relaxed); atomic_store_explicit(&gLastAncT, t, memory_order_release);
+    } else if (h && (t = atomic_load_explicit(&gLastAncT, memory_order_acquire)) != 0) {
+        atomic_fetch_add_explicit(&gAnchorMiss, 1, memory_order_relaxed);
+        union { double d; uint64_t u; } pu; pu.u = atomic_load_explicit(&gLastAncP, memory_order_relaxed); p = pu.d;
+        f = atomic_load_explicit(&gLastAncF, memory_order_relaxed); got = p > 0;
+    }
+    if (got && (dAge = (int64_t)(now - t)) < (int64_t)(ANCHOR_STALE_NS * gTb.denom / gTb.numer)) {
         *tpf = p; *f0 = f; *h0 = t; *seed = atomic_load_explicit(&h->generation, memory_order_relaxed);
         *framesNow = (Float64)f + (Float64)((int64_t)(now - t)) / p;
         return 1;
     }
+    if (h) atomic_fetch_add_explicit(&gVirtUse, 1, memory_order_relaxed);
     Float64 rate = atomic_load_explicit(&gRate, memory_order_relaxed);
     if (!gVirtHost) gVirtHost = now;
     *tpf = gHostHz / rate; *f0 = 0; *h0 = gVirtHost; *seed = 0x80000000u + atomic_load(&gVirtSeed);
