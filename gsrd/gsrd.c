@@ -198,6 +198,9 @@ static int gOutCal; static int64_t gD;
 static _Atomic uint64_t gLateAhead, gLateGone;           // late output frames: not written yet by the plug-in / already overwritten (their sum is H->outLate)
 static int64_t gAheadMin = INT64_MAX, gAheadMax = INT64_MIN, gGoneMax;   // how far (frames) the read position was from the written one, since the last stats line
 static volatile int gOutActive;            // the plug-in has written output recently (not derived from ioClients, which can leak when a client dies)
+// Output alignment follow-up: the last presented block of stream 0 (bus time and block index), written by the send callback, read by the main loop
+static volatile uint32_t gPresSeq; static double gPresLiveBus; static uint64_t gPresLiveFrame;
+static double gAlignEma; static uint64_t gAlignSteps, gAlignBad; static int64_t gMarginMin = INT64_MAX;     // margin: written position minus read position, smallest since the last stats line
 static uint64_t gOutWSeen; static CFAbsoluteTime gOutWChanged;    // sample time of playback block p = p + gD
 static CFAbsoluteTime gSessionStart;
 static CFAbsoluteTime gLastCb, gMaxGap;
@@ -331,6 +334,12 @@ static void buildPacket(PlayS *ps, uint64_t seq, double tSend, double sendBus) {
             gP0 = ps->frame; gHavePres = 1;
         }
         double tout = gT0tick + (double)(ps->dataIdx - gN0) * gR;
+        if (ps->idx == 0 && sendBus >= 0) {
+            double pb = sendBus + fmod(tout - tSend + 49152.0 * 4, 49152.0);
+            __atomic_add_fetch(&gPresSeq, 1, __ATOMIC_ACQ_REL);
+            gPresLiveBus = pb; gPresLiveFrame = ps->frame;
+            __atomic_add_fetch(&gPresSeq, 1, __ATOMIC_RELEASE);
+        }
         uint32_t tk = (uint32_t)fmod(tout, 49152.0);
         syt = ((tk / 3072) & 0xF) << 12 | (tk % 3072);
         ps->synced++;
@@ -344,7 +353,7 @@ static void buildPacket(PlayS *ps, uint64_t seq, double tSend, double sendBus) {
         int have = 0; const float *src = NULL;
         if (clients) {
             int64_t S = (int64_t)ps->frame + gD;
-            if (S >= 0 && (uint64_t)S < outW && (uint64_t)S + H->ringFrames > outW) { src = ring + (size_t)((uint64_t)S & gOutMask) * GSR_MAX_CH + ps->idx * CH_PER_STREAM; have = 1; }
+            if (S >= 0 && (uint64_t)S < outW && (uint64_t)S + H->ringFrames > outW) { src = ring + (size_t)((uint64_t)S & gOutMask) * GSR_MAX_CH + ps->idx * CH_PER_STREAM; have = 1; if (b == 0 && ps->idx == 0) { int64_t m = (int64_t)outW - S; if (m < gMarginMin) gMarginMin = m; } }
             else if (S >= 0 && ps->idx == 0) {
                 atomic_fetch_add_explicit(&H->outLate, 1, memory_order_relaxed);
                 if ((uint64_t)S >= outW) { atomic_fetch_add_explicit(&gLateAhead, 1, memory_order_relaxed); int64_t a = S - (int64_t)outW; if (a < gAheadMin) gAheadMin = a; if (a > gAheadMax) gAheadMax = a; }
@@ -895,12 +904,48 @@ static void calibrateOutput(void) {
           ((double)bup - (double)mach_absolute_time()) * gTb.numer / gTb.denom / 1000.0);
 }
 
+// The read position of the playback blocks runs at the rate of the data packets sent, the capture time line at the rate the card produces its samples.
+// They differ by a fraction of a ppm (measured: one frame every 50 s, a margin of 3 ms gone after about two hours), after which the output went
+// late more and more often (crackling that grows with time). The alignment found at the start is therefore checked every second against the presentation
+// time of the packets being sent, and moved by one frame when the (averaged) difference reaches one frame.
+static void trackOutput(void) {
+    if (!gOutCal || !gHavePres || !dllInit) return;
+    uint32_t s1, s2; double pb; uint64_t pf;
+    do { s1 = __atomic_load_n(&gPresSeq, __ATOMIC_ACQUIRE); pb = gPresLiveBus; pf = gPresLiveFrame; s2 = __atomic_load_n(&gPresSeq, __ATOMIC_ACQUIRE); } while ((s1 & 1) || s1 != s2);
+    uint64_t df, dh; double dp;
+    if (s1 == 0 || !gsr_anchor_read(H, &df, &dh, &dp) || dp <= 0) return;
+    UInt32 ct = 0; UInt64 up = 0; double bestW = 1e18; UInt32 bct = 0; UInt64 bup = 0;
+    for (int i = 0; i < 8; i++) {
+        uint64_t a = mach_absolute_time();
+        if ((*gDev)->GetCycleTimeAndUpTime(gDev, &ct, &up) != kIOReturnSuccess) continue;
+        uint64_t b = mach_absolute_time();
+        if ((double)(b - a) < bestW) { bestW = (double)(b - a); bct = ct; bup = up; }
+    }
+    if (bestW > 1e17) return;
+    double busNow = (double)((bct >> 25) & 0x7F) * 24576000.0 + (double)((bct >> 12) & 0x1FFF) * 3072.0 + (double)(bct & 0xFFF);
+    const double W = 8.0 * 24576000.0;
+    double x = fmod(pb - busNow, W);
+    if (x > W / 2) x -= W;
+    if (x < -W / 2) x += W;
+    double hostPres = (double)bup + x / 24576000.0 * gHostHz;
+    double nPlay = (double)df + (hostPres - (double)dh) / dp;
+    double res = nPlay - (double)pf - (double)gD;           // frames the read position is off by
+    if (fabs(res) > 960.0) { gAlignBad++; return; }          // not a drift (20 ms): a bad reading, ignore it
+    gAlignEma += (res - gAlignEma) * 0.05;
+    if (gAlignEma >= 1.0 || gAlignEma <= -1.0) {
+        int step = gAlignEma > 0 ? 1 : -1;
+        gD += step; gAlignEma -= step; gAlignSteps++;
+        if (gAlignSteps <= 20 || gAlignSteps % 100 == 0)
+            logf2("output alignment: moved by %+d frame (offset now %" PRId64 ", %" PRIu64 " moves since the start of the session, last reading %+.2f frames)", step, gD, gAlignSteps, res);
+    }
+}
+
 static EndReason runSession(unsigned rate, unsigned *nextRate) {
     EndReason reason = END_ERROR;
     int started = 0;
     memset(gC, 0, sizeof gC); memset(gP, 0, sizeof gP);
     gOutActive = 0; gOutWSeen = 0; gOutWChanged = 0;
-    gsrm_reset(); gMidiClock = 0; gSyncStarted = 0; gHavePres = 0; gRxCnt = 0; gRxHave = 0; gMeasuring = 0; gPreEnabled = 0; gOutCal = 0; gD = 0; dllInit = 0; gMaxGap = 0; gLastCb = 0;
+    gsrm_reset(); gMidiClock = 0; gSyncStarted = 0; gHavePres = 0; gRxCnt = 0; gRxHave = 0; gMeasuring = 0; gPreEnabled = 0; gOutCal = 0; gD = 0; dllInit = 0; gMaxGap = 0; gLastCb = 0; gAlignEma = 0; gAlignSteps = 0; gAlignBad = 0; gMarginMin = INT64_MAX; gPresSeq = 0;
     gRate = rate; gBlocks = rate <= 48000 ? 8 : 16;
     gLeadTicks = rate >= 88200 ? 4500.0 : 12800.0;
     atomic_store(&H->state, GSR_STATE_IDLE);
@@ -999,7 +1044,7 @@ static EndReason runSession(unsigned rate, unsigned *nextRate) {
 
     // 4. run
     {
-        CFAbsoluteTime t0 = CFAbsoluteTimeGetCurrent(), lastStat = t0, lastLog = t0;
+        CFAbsoluteTime t0 = CFAbsoluteTimeGetCurrent(), lastStat = t0, lastLog = t0, lastTrack = t0;
         UInt32 lastExt = 0xDEADBEEF; int calibrated = 0, unlockedPolls = 0, silent = 0;
         reason = END_ERROR;
         for (;;) {
@@ -1025,16 +1070,17 @@ static EndReason runSession(unsigned rate, unsigned *nextRate) {
               gOutActive = (now - gOutWChanged) < 0.25; }
             if (!calibrated && now - t0 > 1.5) { calibrated = 1; calibrateOutput(); }
             if (!calibrated && now - t0 > 4.0) { calibrated = 1; gD = 0; gOutCal = 1; }
+            if (calibrated && now - lastTrack >= 1.0) { lastTrack = now; trackOutput(); }
             if (now - lastLog >= 30.0) {
                 lastLog = now;
                 logf2("stats: capture data packets %" PRIu64 "/%" PRIu64 " (CIP errors %" PRIu64 ", DBC jumps %" PRIu64 "), longest send callback gap %.1f ms, input late %" PRIu64 ", output late %" PRIu64 ", clients %u",
                       gC[0].data, gC[1].data, gC[0].badCip + gC[1].badCip, gC[0].dbcJumps + gC[1].dbcJumps, gMaxGap * 1000, (uint64_t)atomic_load(&H->inLate), (uint64_t)atomic_load(&H->outLate), atomic_load(&H->ioClients));
                 gMaxGap = 0;
                 if (atomic_load(&gLateAhead) + atomic_load(&gLateGone) > 0 || gOutActive)
-                    logf2("output: frames late because not written yet %" PRIu64 " (read position ahead of the written one by %" PRId64 " to %" PRId64 " frames), already overwritten %" PRIu64 " (behind by up to %" PRId64 "); offset %" PRId64 ", presentation recorded %d, safety out %u frames, written %" PRIu64 ", ring %u frames, plug-in writing %d",
+                    logf2("output: frames late because not written yet %" PRIu64 " (read position ahead of the written one by %" PRId64 " to %" PRId64 " frames), already overwritten %" PRIu64 " (behind by up to %" PRId64 "); offset %" PRId64 ", presentation recorded %d, safety out %u frames, written %" PRIu64 ", ring %u frames, plug-in writing %d; margin (written minus read) at least %" PRId64 " frames, alignment moved %" PRIu64 " times (%" PRIu64 " bad readings)",
                           (uint64_t)atomic_load(&gLateAhead), gAheadMin == INT64_MAX ? 0 : gAheadMin, gAheadMax == INT64_MIN ? 0 : gAheadMax, (uint64_t)atomic_load(&gLateGone), gGoneMax, gD, gHavePres, H->safetyOut,
-                          (uint64_t)atomic_load(&H->outWritten), H->ringFrames, (int)gOutActive);
-                gAheadMin = INT64_MAX; gAheadMax = INT64_MIN; gGoneMax = 0;
+                          (uint64_t)atomic_load(&H->outWritten), H->ringFrames, (int)gOutActive, gMarginMin == INT64_MAX ? 0 : gMarginMin, gAlignSteps, gAlignBad);
+                gMarginMin = INT64_MAX; gAheadMin = INT64_MAX; gAheadMax = INT64_MIN; gGoneMax = 0;
                 {   // rates over the last interval, on the same monotonic clock: frames generated for the card vs frames written by CoreAudio vs captured
                     static double pT; static uint64_t pF, pW, pI;
                     uint64_t f = gP[0].frame, w = atomic_load(&H->outWritten), in = atomic_load(&H->inWritten);
