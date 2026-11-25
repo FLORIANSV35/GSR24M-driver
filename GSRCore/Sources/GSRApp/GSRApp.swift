@@ -25,8 +25,16 @@ struct GSRApp: App {
     @StateObject private var updates = UpdateChecker()
     @StateObject private var recall = RecallModel()
     @StateObject private var midi = MIDIModel()
+    @StateObject private var analyzer = AnalyzerModel()
     init() {
+        // A hosted plug-in's own view can raise an exception while it draws (seen with Apple's AUGraphicEQ). AppKit would stop the whole application; log it and go on.
+        UserDefaults.standard.register(defaults: ["NSApplicationCrashOnExceptions": false])
         SingleInstance.enforce()
+        if let i = CommandLine.arguments.firstIndex(of: "--analyzer-selftest") {
+            let rest = Array(CommandLine.arguments.dropFirst(i + 1))
+            Task { @MainActor in await AnalyzerSelfTest.run(rest); exit(0) }
+            RunLoop.main.run()
+        }
         if let i = CommandLine.arguments.firstIndex(of: "--render-strip"), i + 1 < CommandLine.arguments.count {
             StripPreview.render(to: CommandLine.arguments[i + 1]); exit(0)
         }
@@ -39,7 +47,7 @@ struct GSRApp: App {
     }
     var body: some Scene {
         WindowGroup("Allen and Heath Firewire") {
-            ContentView().environmentObject(model).environmentObject(updates).environmentObject(recall).environmentObject(midi)
+            ContentView().environmentObject(model).environmentObject(updates).environmentObject(recall).environmentObject(midi).environmentObject(analyzer)
                 .onAppear { if !CommandLine.arguments.contains("--demo") { updates.check() } }
                 .frame(minWidth: 760, minHeight: 640)
                 .preferredColorScheme(.dark)
@@ -48,7 +56,7 @@ struct GSRApp: App {
 }
 
 enum GlobalTab: String, CaseIterable { case monitor = "Monitor", bus = "Bus", system = "System", info = "Info", diag = "Diagnostic", dev = "Dev" }
-enum DeviceTab: String, CaseIterable { case general = "General", channels = "Channels", recall = "Recall", midi = "MIDI", firmware = "Firmware" }
+enum DeviceTab: String, CaseIterable { case general = "General", channels = "Channels", recall = "Recall", analyzer = "Analyzer", midi = "MIDI", firmware = "Firmware" }
 
 struct ContentView: View {
     @EnvironmentObject var model: AppModel
@@ -56,7 +64,7 @@ struct ContentView: View {
     @State private var gTab = GlobalTab.monitor
     @State private var restarting: Services.Piece?
     @State private var restartMessage: String?
-    @State private var dTab = CommandLine.arguments.contains("--recall") ? DeviceTab.recall : CommandLine.arguments.contains("--midi") ? DeviceTab.midi : DeviceTab.general
+    @State private var dTab = CommandLine.arguments.contains("--recall") ? DeviceTab.recall : CommandLine.arguments.contains("--midi") ? DeviceTab.midi : CommandLine.arguments.contains("--analyzer") ? DeviceTab.analyzer : DeviceTab.general
     @State private var importing = false
     @AppStorage("opMode") private var opMode = "Normal Mode"
     @AppStorage("hideCapture") private var hideCapture = false
@@ -81,7 +89,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity).padding(6)
                     .background(.yellow, in: RoundedRectangle(cornerRadius: 6))
             }
-            if dTab != .recall && dTab != .midi {          // the Recall and MIDI tabs need the whole window
+            if dTab != .recall && dTab != .midi && dTab != .analyzer {          // the Recall, MIDI and Analyzer tabs need the whole window
                 Bar(title: "Global Settings")
                 Panel {
                     VStack(alignment: .leading, spacing: 10) {
@@ -353,6 +361,7 @@ struct ContentView: View {
             case .general: general(d)
             case .channels: channels(d)
             case .recall: RecallView()
+            case .analyzer: AnalyzerView()
             case .midi: MIDIView()
             case .firmware:
                 VStack(alignment: .leading, spacing: 8) {

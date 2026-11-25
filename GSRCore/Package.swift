@@ -8,8 +8,9 @@ let package = Package(
                .executable(name: "GSRApp", targets: ["GSRApp"]),
                .executable(name: "GSRMidiAgent", targets: ["GSRMidiAgent"])],
     targets: [
-        .target(name: "GSRCore"),
-        .executableTarget(name: "GSRApp", dependencies: ["GSRCore"]),
+        .target(name: "CGSRRing"),
+        .target(name: "GSRCore", dependencies: ["CGSRRing"]),
+        .executableTarget(name: "GSRApp", dependencies: ["GSRCore", "CGSRRing"]),
         .executableTarget(name: "GSRMidiAgent", dependencies: ["GSRCore"]),
         .testTarget(name: "GSRCoreTests", dependencies: ["GSRCore"],
                     resources: [.copy("Fixtures")]),
